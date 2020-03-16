@@ -50,8 +50,80 @@ import {
 } from "baseui/card";
 
 import Sentencer from "sentencer"
+import UsernameGenerator from "username-generator"
 import { decode } from "blurhash"
+import Faker from "faker"
+import RandomGen from "random-seed"
 
+class Datastore {
+
+  listingCache = {}
+  userCache = {}
+  imageCache = {}
+
+
+  hashCode(str) {
+    return Array.from(String(str))
+      .reduce((s, c) => Math.imul(31, s) + c.charCodeAt(0) | 0, 0)
+  }
+
+  generateRandomUsername(id) {
+    // var name = Sentencer.make("{{ noun }}")
+    Faker.seed(this.hashCode(id))
+    name = Faker.internet.userName()
+    return name
+  }
+
+  generateRandomBlurredImageData(id, width, height) {
+    if (id in this.imageCache) {
+      return this.imageCache[id]
+    }
+    console.log("generating")
+
+    var randomGen = RandomGen.create(this.hashCode(id))
+    var res = 4
+    var blurhashEncoding = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz#$%*+,-.:;=?@[]^_{|}~"
+    var randomBlurhash = [...Array(6+(res*res-1)*2).keys()].map(i => Math.floor(blurhashEncoding.length * randomGen.random())).map(i => blurhashEncoding[i])
+    randomBlurhash[0] = blurhashEncoding[(res-1) + (res-1)*9]
+    randomBlurhash = randomBlurhash.join("")
+    const pixels = decode(randomBlurhash, width, height);
+
+    this.imageCache[id] = pixels
+    return pixels
+  }
+
+  getListingDataById(id) {
+    if (id in this.listingCache) {
+      return this.listingCache[id]
+    }
+
+    const price = Math.round(Math.random()*100)/100
+    var name = Sentencer.make("{{ adjective }} {{ noun }}")
+    name = name[0].toUpperCase() + name.slice(1, name.length)
+    const ownerId = id
+
+    const data = {price, name, ownerId}
+    this.listingCache[id] = data
+    return data
+  }
+
+  getUserDataById(id) {
+    if (id in this.userCache) {
+      return this.userCache[id]
+    }
+
+    const name = this.generateRandomUsername(id)
+    Faker.seed(0)
+    const avatarURL = Faker.image.avatar()
+
+    var data = {name, avatarURL}
+    this.userCache[id] = data
+    return data
+
+
+  }
+
+}
 
 class App extends React.Component {
 
@@ -61,16 +133,19 @@ class App extends React.Component {
 
   render() {
     return (
-      <div style={{paddingLeft: "5px", paddingRight: "5px", display: "flex", flexDirection: "column", height: "100%"}}>
+      <div style={{display: "flex", flexDirection: "column", height: "100%"}}>
         <div>
           <Header/>
         </div>
         <div style={{flex: "auto", position: "relative"}}>
           <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0"}}>
-            <Router>
-              <LandingPage path="/"/>
-              <Listings path="/home"/>
-            </Router>
+            <div style={{width: "100%", height: "100%"}}>
+              <Router>
+                <LandingPage path="/"/>
+                <Listings path="/home"/>
+                <Listing path="/item/:id"/>
+              </Router>
+            </div>
           </div>
         </div>
       </div>
@@ -88,33 +163,26 @@ class Listings extends React.Component {
   }
 
   render() {
-    var cards = [...Array(10).keys()].map(item => {
-
-      var price = Math.round(Math.random()*100)/100
-      var label = Sentencer.make("{{ adjective }} {{ noun }}")
-      label = label[0].toUpperCase() + label.slice(1, label.length)
-
+    var cards = [...Array(100).keys()].map(idx => {
       return (
-        <div style={{marginRight: this.sideMargins, marginBottom: this.topBottomMargins}} key={item} >
-          <ListingCard {...{price, label}} />
+        <div style={{marginRight: this.sideMargins, marginBottom: this.topBottomMargins}} key={idx} >
+          <ListingCard id={idx} />
         </div>
       )
     })
 
-    var hiddenSpacers = [...Array(10).keys()].map(item => {
+    var hiddenSpacers = [...Array(10).keys()].map(idx => {
       return (
-        <div style={{marginRight: this.sideMargins, maxHeight:"0", visibility: "hidden", overflow: "hidden"}} key={item+"sp"} >
-          <ListingCard/>
+        <div style={{marginRight: this.sideMargins, maxHeight:"0", visibility: "hidden", overflow: "hidden"}} key={idx+"sp"} >
+          <ListingCard id={idx}/>
         </div>
       )
     })
 
     return (
-      <div style={{height: "100%", overflow: "auto"}}>
-        <div style={{display: "flex", justifyContent: "center", alignItems: "start", flexWrap: "wrap", marginLeft: this.sideMargins, marginTop: this.topBottomMargins,}}>
-          {cards}
-          {hiddenSpacers}
-        </div>
+      <div style={{display: "flex", justifyContent: "center", alignItems: "start", flexWrap: "wrap", marginLeft: this.sideMargins, marginTop: this.topBottomMargins,}}>
+        {cards}
+        {hiddenSpacers}
       </div>
     )
 
@@ -125,7 +193,6 @@ class Listings extends React.Component {
 class ListingCard extends React.Component {
 
   imageSize = 200
-  ownerIconSize = 35
 
   constructor(props) {
     super(props)
@@ -135,13 +202,7 @@ class ListingCard extends React.Component {
   }
 
   componentDidMount() {
-    var res = 4
-    var blurhashEncoding = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz#$%*+,-.:;=?@[]^_{|}~"
-    var randomBlurhash = [...Array(6+(res*res-1)*2).keys()].map(i => Math.floor(blurhashEncoding.length * Math.random())).map(i => blurhashEncoding[i])
-    randomBlurhash[0] = blurhashEncoding[(res-1) + (res-1)*9]
-    randomBlurhash = randomBlurhash.join("")
-
-    const pixels = decode(randomBlurhash, this.imageSize, this.imageSize);
+    const pixels = datastore.generateRandomBlurredImageData(this.props.id, this.imageSize, this.imageSize)
     const canvas = this.state.canvasRef.current
     const ctx = canvas.getContext("2d");
     const { width, height } = canvas.getBoundingClientRect()
@@ -151,23 +212,86 @@ class ListingCard extends React.Component {
   }
 
   render() {
+    var onClick = e => {e.preventDefault(); navigate(`item/${this.props.id}`)}
+    const { price, name } = datastore.getListingDataById(this.props.id)
 
     return (
-      <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", cursor: "pointer"}}>
+      <div onClick={onClick} style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", cursor: "pointer"}}>
         <div style={{height: this.imageSize+"px", width: this.imageSize+"px", backgroundColor: "#ccc", position: "relative"}}>
-          <div style={{height: this.ownerIconSize+"px", width: this.ownerIconSize+"px", borderRadius: this.ownerIconSize/2.0+"px", backgroundColor: "#eee", position: "absolute", right: "10px", top: "10px"}}>
+          <div style={{position: "absolute", right: "10px", top: "10px"}}>
+            <UserAvatar id={this.props.id} size={35} />
           </div>
           <canvas ref={this.state.canvasRef} width={this.imageSize} height={this.imageSize}></canvas>
         </div>
         <div style={{display: "flex", flexDirection: "column", justifyContent: "center", padding: "10px", width: this.imageSize+"px", boxSizing: "border-box"}}>
           <LabelLarge style={{textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden"}}>
-            {this.props.label}
+            {name}
           </LabelLarge>
           <LabelSmall style={{margin: 0, textAlign: "right", marginTop: "5px"}} color={["contentSecondary"]}>
-            {this.props.price + " ETH"}
+            {price + " ETH"}
           </LabelSmall>
         </div>
       </div>
+    )
+  }
+}
+
+class UserAvatar extends React.Component {
+  constructor(props) {
+    super(props)
+  }
+
+  render() {
+    var onClick = (e => {
+      e.stopPropagation(); navigate(`/user/${this.props.id}`)
+    })
+
+    const { avatarURL } = datastore.getUserDataById(this.props.id)
+
+    return (
+      <div onClick={onClick} style={{height: this.props.size+"px", width: this.props.size+"px", borderRadius: this.props.size/2.0+"px", backgroundColor: "#eee", cursor: "pointer", overflow: "hidden"}}>
+        <img src={avatarURL} style={{height: "100%", width: "100%"}}></img>
+      </div>
+    )
+  }
+}
+
+class Listing extends React.Component {
+
+  viewAreaSize = 500
+  blockMargins = 40
+
+  constructor(props) {
+    super(props)
+  }
+
+  render() {
+    const { price, name, ownerId } = datastore.getListingDataById(this.props.id)
+    const owner = datastore.getUserDataById(ownerId)
+
+    return (
+        <div style={{display: "flex", justifyContent: "center", alignItems: "center", padding: "20px"}}>
+          <div style={{display: "flex", flexWrap: "wrap"}}>
+            <div style={{width: this.viewAreaSize+"px", height: this.viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", margin: this.blockMargins+"px"}}>
+            </div>
+            <div style={{width: this.viewAreaSize+"px", maxWidth: this.viewAreaSize + "px", display: "flex", flexDirection: "column", margin: this.blockMargins+"px"}}>
+              <DisplaySmall color={["colorSecondary"]}>
+                {name}
+              </DisplaySmall>
+              <div style={{display: "flex", marginTop: "10px", alignItems: "center", paddingLeft: "2px"}}>
+                <LabelLarge color={["colorSecondary"]}>
+                  {"Owned by"}
+                </LabelLarge>
+                <div style={{paddingRight: "10px", paddingLeft: "10px"}}>
+                  <UserAvatar size={35} id={ownerId}/>
+                </div>
+                <LabelLarge color={["colorSecondary"]}>
+                  {owner.name}
+                </LabelLarge>
+              </div>
+            </div>
+          </div>
+        </div>
     )
   }
 }
@@ -235,7 +359,7 @@ class Header extends React.Component {
             </RouterLink>
           </StyledNavigationItem>
         </StyledNavigationList>
-        <StyledNavigationList $align={ALIGN.right}>
+        <StyledNavigationList $align={ALIGN.right} style={{marginRight: "20px"}}>
           <StyledNavigationItem>
             <Button>Sign In</Button>
           </StyledNavigationItem>
@@ -247,6 +371,8 @@ class Header extends React.Component {
 
 const THEME = LightTheme
 const engine = new Styletron();
+const datastore = new Datastore();
+
 ReactDOM.render((
 	<StyletronProvider value={engine}>
 		<BaseProvider theme={THEME}>
