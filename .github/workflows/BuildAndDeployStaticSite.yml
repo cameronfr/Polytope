@@ -1,0 +1,32 @@
+# This is a basic workflow to help you get started with Actions
+
+name: BuildAndDeployStaticSite
+
+on:
+  push:
+    branches: master
+
+jobs:
+  main:
+    runs-on: ubuntu-latest
+
+    steps:
+  
+    - uses: actions/checkout@v2
+
+    - uses: actions/setup-node@master
+    
+    - name: install and build
+      run: |
+        yarn install
+        cd website
+        parcel build index.html   
+     
+    # later, may want to add 1. testing 2. more custom dist/ deployment (e.g. if images)
+    - name: Deploy
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./website/dist
+        
+    
