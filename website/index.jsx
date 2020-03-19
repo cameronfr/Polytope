@@ -3,6 +3,8 @@ var React = require("react")
 var ReactDOM = require("react-dom")
 import { Router, Link as RouterLink, navigate } from "@reach/router"
 
+import Voxels from "./voxels.jsx"
+
 const CopyToClipboard = require('clipboard-copy')
 import {Client as Styletron} from 'styletron-engine-atomic';
 import {Provider as StyletronProvider} from 'styletron-react';
@@ -144,6 +146,7 @@ class App extends React.Component {
                 <LandingPage path="/"/>
                 <Listings path="/home"/>
                 <Listing path="/item/:id"/>
+                <Voxels path="/newItem"/>
               </Router>
             </div>
           </div>
@@ -345,18 +348,14 @@ class Header extends React.Component {
         </StyledNavigationList>
         <StyledNavigationList $align={ALIGN.right}>
           <StyledNavigationItem style={{paddingLeft: "0px"}}>
-            <RouterLink to="home">
-              <Button kind={KIND.minimal} size={SIZE.default}>
-                Home
-              </Button>
-            </RouterLink>
+            <Button onClick={() => navigate("home")} kind={KIND.minimal} size={SIZE.default}>
+              Home
+            </Button>
           </StyledNavigationItem>
           <StyledNavigationItem style={{paddingLeft: "0"}}>
-            <RouterLink to="newItem">
-              <Button kind={KIND.minimal} size={SIZE.default}>
-                Create Item
-              </Button>
-            </RouterLink>
+            <Button onClick={() => navigate("newItem")} kind={KIND.minimal} size={SIZE.default}>
+              Create Item
+            </Button>
           </StyledNavigationItem>
         </StyledNavigationList>
         <StyledNavigationList $align={ALIGN.right} style={{marginRight: "20px"}}>
