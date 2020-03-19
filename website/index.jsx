@@ -141,14 +141,12 @@ class App extends React.Component {
         </div>
         <div style={{flex: "auto", position: "relative"}}>
           <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0"}}>
-            <div style={{width: "100%", height: "100%"}}>
-              <Router>
-                <LandingPage path="/"/>
-                <Listings path="/home"/>
-                <Listing path="/item/:id"/>
-                <Voxels path="/newItem"/>
-              </Router>
-            </div>
+            <Router>
+              <LandingPage path="/"/>
+              <Listings path="/home"/>
+              <Listing path="/item/:id"/>
+              <Voxels path="/newItem"/>
+            </Router>
           </div>
         </div>
       </div>
@@ -183,9 +181,11 @@ class Listings extends React.Component {
     })
 
     return (
-      <div style={{display: "flex", justifyContent: "center", alignItems: "start", flexWrap: "wrap", marginLeft: this.sideMargins, marginTop: this.topBottomMargins,}}>
-        {cards}
-        {hiddenSpacers}
+      <div style={{width: "100%", height: "100%", overflow: "auto"}}>
+        <div style={{display: "flex", justifyContent: "center", alignItems: "start", flexWrap: "wrap", marginLeft: this.sideMargins, marginTop: this.topBottomMargins,}}>
+          {cards}
+          {hiddenSpacers}
+        </div>
       </div>
     )
 
