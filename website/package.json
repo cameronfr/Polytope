@@ -14,15 +14,19 @@
     "react": "15.x || 16.x || 16.4.0-alpha.0911da3",
     "react-dom": "15.x || 16.x || 16.4.0-alpha.0911da3",
     "sentencer": "^0.2.0",
+    "stats.js": "^0.17.0",
     "styletron-engine-atomic": "^1.4.6",
     "styletron-react": "^5.2.7",
+    "three": "^0.114.0",
+    "three-fly-controls": "^2.0.0",
     "username-generator": "^1.1.0"
   },
   "devDependencies": {
     "@babel/core": "^7.8.7",
     "@babel/plugin-proposal-class-properties": "^7.8.3",
     "@babel/preset-env": "^7.8.7",
-    "@babel/preset-react": "^7.8.3"
+    "@babel/preset-react": "^7.8.3",
+    "cssnano": "^4.1.10"
   },
   "babel": {
     "presets": [
