@@ -3,9 +3,9 @@
 
     "public": "dist/",  
 
-    "rewrites": [ {
+    "rewrites": [{
       "source": "**",
-      "destination": "index.html"
+      "destination": "/index.html"
     }]
   }
 }
