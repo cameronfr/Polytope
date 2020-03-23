@@ -26,7 +26,7 @@ jobs:
       with:
         args: deploy --only hosting
       env:
-        GCP_SA_KEY: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+        GCP_SA_KEY: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_2 }}
         PROJECT_ID: polytope
         PROJECT_PATH: ./website
     
