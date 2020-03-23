@@ -1,14 +1,286 @@
+//Sphere optimization possible todo: https://medium.com/@calebleak/raymarching-voxel-rendering-58018201d9d6
+
+
 var React = require("react")
 var ReactDOM = require("react-dom")
 
 import Stats from "stats.js"
 
 import * as THREE from 'three';
+import Regl from "regl"
+import ndarray from "ndarray"
+import mat4 from "gl-mat4"
+
 
 import {LightTheme, BaseProvider, styled} from 'baseui';
 const THEME = LightTheme
 
 class Voxels extends React.Component {
+  constructor(props) {
+    super(props)
+    this.canvasRef = React.createRef()
+    this.containerRef = React.createRef()
+  }
+
+  componentDidMount() {
+    var stats = new Stats();
+    stats.showPanel(0);
+    this.containerRef.current.appendChild(stats.dom)
+
+    // Initialize blocks
+    var randomColor = require('randomcolor')
+    const worldSize = 64 //# blocks makes no diff when staring off into void
+    this.blocks = ndarray(new Uint8Array(4*worldSize**3), [worldSize, worldSize, worldSize, 4])
+    for ( let i =0; i < worldSize; i++) {
+      for(var j=0; j < worldSize; j++) {
+        for(var k=0; k < worldSize; k++) {
+          // this.blocks.set(i, j, k, 3, 0)
+          this.blocks.set(i, j, k, 3, Math.floor(Math.random()*1.6))
+          let color = randomColor({format:"rgbArray"})
+          this.blocks.set(i, j, k, 0, color[0])
+          this.blocks.set(i, j, k, 1, color[1])
+          this.blocks.set(i, j, k, 2, color[2])
+        }
+      }
+    }
+
+    this.camera = new THREE.PerspectiveCamera(75, 1.0, 0.1, 1000)
+    this.controls = new FlyControls(this.camera, this.canvasRef.current, this.blocks)
+    this.resizeCanvasAndCamera()
+    window.addEventListener("resize", () => this.resizeCanvasAndCamera())
+    this.regl = Regl({
+      canvas: this.canvasRef.current,
+      extensions: ["OES_texture_float", 'EXT_shader_texture_lod', "OES_standard_derivatives"],
+      onDone: function (err, regl) {
+        if (err) {
+          console.log(err)
+          return
+        }
+      }
+
+    })
+
+
+    var blocksReshape = ndarray(this.blocks.data, [worldSize, worldSize**2, 4])
+    var blocksTexture = this.regl.texture({
+      shape: [worldSize, worldSize**2, 4],
+      type: "uint8",
+      data: blocksReshape.data})
+
+      // var image = new Image()
+      // image.src = 'https://i.imgur.com/0B6nUmB.jpg'
+      // image.crossOrigin = "";
+      // image.onload = () => {imageTexture(image)}
+      var imageTexture = this.regl.texture()
+
+    var invViewMatrix = ({viewportWidth, viewportHeight}) => {
+      // view matrix is this.camera.matrixWorldInverse
+      return this.camera.matrixWorld.elements
+    }
+
+    // gl-mat4 wasn't getting an inverse matrix (mb bcz NaN in perspective matrix?)
+    var invProjectionMatrix = ({viewportWidth, viewportHeight}) => {
+      return this.camera.projectionMatrixInverse.elements
+    }
+    // console.log(this.camera.projectionMatrixInverse)
+    // console.log((new THREE.Vector4(0.1, 0.1, 0, 1)).applyMatrix4(this.camera.projectionMatrixInverse))
+
+    const drawTriangle = this.regl({
+      frag: `
+        #extension GL_EXT_shader_texture_lod : enable
+        #extension GL_OES_standard_derivatives : enable
+
+        //precision mediump float;
+        precision highp float;
+        uniform vec4 color;
+        uniform sampler2D blocks;
+        uniform sampler2D imageTexture;
+        uniform vec2 viewportSize;
+        uniform mat4 invProjection;
+        uniform mat4 invView;
+
+        // robobo1221
+        vec3 getSky(vec2 uv){
+            float atmosphere = sqrt(1.0-uv.y);
+            vec3 skyColor = vec3(0.2,0.4,0.8);
+
+            float scatter = pow(0.2,1.0 / 15.0);
+            scatter = 1.0 - clamp(scatter,0.8,1.0);
+
+            vec3 scatterColor = mix(vec3(1.0),vec3(1.0,0.3,0.0) * 1.5,scatter);
+            return mix(skyColor,vec3(scatterColor),atmosphere / 1.3);
+        }
+
+        float maxOf(vec3 vec) {
+          return max(vec.x, max(vec.y, vec.z));
+        }
+
+        vec2 twoNonZero(vec3 vec) {
+          // not a fan of all these epsilons but couldn't find other way
+          const float eps = 0.001;
+          if (vec[0] <= eps) {
+            return vec2(vec[1], vec[2]);
+          } else if (vec[1] <= eps) {
+            return vec2(vec[0], vec[2]);
+          } else if (vec[2] <= eps) {
+            return vec2(vec[0], vec[1]);
+          }
+          return vec2(0,0);
+        }
+
+        void main() {
+          vec2 scaledScreenCoord = 2.0 * ((gl_FragCoord.xy / viewportSize.xy) - 0.5); // -1 to 1
+          mat4 inverseViewProjection = invView * invProjection;
+          vec4 unscaledWorldCoords = inverseViewProjection * vec4(scaledScreenCoord, 0, 1);
+          vec3 worldCoords = unscaledWorldCoords.xyz / unscaledWorldCoords.w;
+          vec3 cameraPos = (invView * vec4(0, 0, 0, 1)).xyz;
+
+          vec3 rayDir = normalize(worldCoords - cameraPos);
+          const vec3 lightDir = normalize(vec3(1, -1, 1));
+
+          const float eps = 0.0001;
+          const float worldSize = ${worldSize.toFixed(1)};
+          const float maxDist = 30.0;
+          float t = 0.0;
+          // while loops not allowed in Webgl 1 :/
+          for(int i=0; i<50; i++) {
+
+            vec3 rayPos = cameraPos + rayDir * t;
+
+            if (clamp(rayPos, 0.0, float(worldSize)-0.0000000001) == rayPos) {
+              vec3 edge = vec3(floor(rayPos.x), floor(rayPos.y), floor(rayPos.z));
+              vec2 blockIdxs = vec2(edge.x,edge.y*worldSize + edge.z);
+              vec4 blockValue = texture2DLodEXT(blocks, blockIdxs/vec2(worldSize, worldSize*worldSize), 0.0);
+
+              if (blockValue.a > 0.0) {
+                vec3 hitDists = rayPos - (edge + 0.5);
+                vec3 hitNorm = vec3(ivec3(hitDists / maxOf(abs(hitDists))));
+
+                vec3 lightReflectionRay = lightDir - 2.0*dot(lightDir, hitNorm)*hitNorm;
+                float reflectRayCosSim = dot(-rayDir, lightReflectionRay);
+                float rayNormCosSim = dot(-rayDir, hitNorm);
+
+                vec2 textureCoords = twoNonZero((1.0 - hitNorm) * (hitDists + 0.5));
+
+                if (length(hitDists) > 0.8) {
+                  gl_FragColor = vec4(0, 0, 0, 1);
+                } else {
+                  if (dot(hitNorm, -lightDir) < 0.0) {
+                    reflectRayCosSim = 0.0;
+                  }
+                  vec3 colorMix  = (reflectRayCosSim + 0.6*rayNormCosSim + 0.5) * blockValue.xyz;
+                  gl_FragColor = vec4(colorMix, 1.0);
+                  // gl_FragColor = vec4(textureCoords, 0.0, 1.0);
+                  // gl_FragColor = texture2D(imageTexture, textureCoords);
+                }
+                return;
+              }
+            }
+
+            // round down if negative rayDir
+            // round up if positive rayDir
+            // need to get distance in direction of ray so sign matters
+            vec3 distanceToPlanes = step(vec3(0, 0, 0), rayDir)*(1.0 - fract(rayPos)) + (1.0 - step(vec3(0, 0, 0), rayDir))*(fract(rayPos));
+            vec3 tDeltasToPlanes = distanceToPlanes / abs(rayDir);
+            t += eps + min(tDeltasToPlanes.x, min(tDeltasToPlanes.y, tDeltasToPlanes.z));
+
+          }
+          gl_FragColor = vec4(getSky(rayDir.xy), 1);
+
+        }
+
+
+        `,
+
+      vert: `
+        precision mediump float;
+        attribute vec2 position;
+        void main() {
+          gl_Position = vec4(position, 0, 1);
+        }`,
+
+      // Here we define the vertex attributes for the above shader
+      attributes: {
+        // regl.buffer creates a new array buffer object
+        position: this.regl.buffer([
+          [-1, -1],   // no need to flatten nested arrays, regl automatically
+          [1, -1],    // unrolls them into a typedarray (default Float32)
+          [1,  1],
+          [-1, 1]
+        ]),
+      },
+
+      elements: [
+        [0, 1, 2],
+        [0, 3, 2],
+      ],
+
+      uniforms: {
+        // This defines the color of the triangle to be a dynamic variable
+        color: this.regl.prop('color'),
+        blocks: blocksTexture,
+        viewportSize: context => ([context.viewportWidth, context.viewportHeight, ]),
+        invProjection: invProjectionMatrix,
+        invView: invViewMatrix,
+        imageTexture: imageTexture,
+      },
+
+      // This tells regl the number of vertices to draw in this command
+      count: 6
+    })
+
+
+    // regl.frame() wraps requestAnimationFrame and also handles viewport changes
+    this.regl.frame(({time}) => {
+      stats.begin()
+      this.regl.clear({
+        color: [0, 0, 0, 0],
+        depth: 1
+      })
+      this.controls.externalTick(1/60)
+      //console.log(this.camera.matrixWorld.elements)
+      drawTriangle({
+        color: [
+          Math.cos(time * 1),
+          Math.sin(time * 0.8),
+          Math.cos(time * 3),
+          1
+        ]
+      })
+      stats.end()
+    })
+
+  }
+
+  resizeCanvasAndCamera() {
+    const canvas = this.canvasRef.current
+    const { height, width} = canvas.getBoundingClientRect();
+    canvas.width = width
+    canvas.height = height
+    this.camera.aspect = width / height
+    this.camera.updateProjectionMatrix()
+
+  }
+
+  render() {
+    return (
+      <div style={{width: "100%", height:"100%"}}>
+        <div style={{display: "flex", flexDirection: "row", height: "100%", padding: THEME.sizing.scale1000, boxSizing: "border-box"}}>
+          <div ref={this.containerRef} style={{flexGrow: "1", display: "flex", flexDirection: "column"}}>
+            <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", flexGrow: "1"}}>
+              <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
+            </div>
+          </div>
+          <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", cursor: "pointer", padding: THEME.sizing.scale600, marginLeft: THEME.sizing.scale1000}}>
+            hi i am a big margin
+          </div>
+        </div>
+      </div>
+    )
+  }
+}
+
+class VoxelsThreeJS extends React.Component {
   constructor(props) {
     super(props)
 
@@ -136,12 +408,12 @@ class BlockScene  {
 
   empty3Darray(size1, size2, size3) {
     var array = new Array()
-    for (var i = 0; i<size1; i++) {
+    for (var i = 0; i < size1; i++) {
       array[i] = new Array()
-      for (var j = 0; j<size2; j++){
+      for (var j = 0; j < size2; j++){
         array[i][j] = new Array()
-        for (var k = 0; k<size3; k++) {
-          array[i][j][k] = Math.floor(Math.random()*2)
+        for (var k = 0; k < size3; k++) {
+          array[i][j][k] = 0//Math.floor(Math.random()*2)
           if (j == 0) {
             array[i][j][k] = 1
           }
@@ -152,9 +424,9 @@ class BlockScene  {
   }
 
   iterator3D(array, func) {
-    for (var i = 0; i<array.length; i++) {
-      for (var j = 0; j<array[0].length; j++){
-        for (var k = 0; k<array[0][0].length; k++) {
+    for (var i = 0; i < array.length; i++) {
+      for (var j = 0; j < array[0].length; j++){
+        for (var k = 0; k < array[0][0].length; k++) {
           func(i, j, k, array[i][j][k])
         }
       }
@@ -184,9 +456,10 @@ class BlockScene  {
 
 class FlyControls {
 
-  constructor(camera, domElement) {
+  constructor(camera, domElement, blocks) {
     this.camera = camera
     this.domElement = domElement
+    this.blocks = blocks
 
 
     window.addEventListener("keydown", e => {
@@ -244,6 +517,21 @@ class FlyControls {
     this.capturingMouseMovement ? this.domElement.requestPointerLock() : document.exitPointerLock()
   }
 
+  checkCollision(oldLocation, newLocation) {
+    var delta = newLocation - oldLocation
+    var currentBlock = oldLocation.clone().floor()
+    var worldSize = this.blocks.shape
+
+    if (currentBlock.clone().clamp(new THREE.Vector3(0,0,0), new THREE.Vector3(...this.blocks.shape)).equals(currentBlock)) {
+      var possibleBlockIdx = ["x", "y", "z"].map(dim => currentBlock[dim] + Math.sign(oldLocation[dim]))
+      var isBlock = this.blocks.get(...possibleBlockIdx, 3)
+      return isBlock != 0
+    }
+
+    return false
+
+  }
+
   externalTick(timeDelta) {
     var cameraDirection = new THREE.Vector3()
     this.camera.getWorldDirection(cameraDirection)
@@ -276,15 +564,24 @@ class FlyControls {
     }
     forceVector.add(decelerationForce)
 
-    this.velocity.add(forceVector)
-    this.velocity.clampLength(0, this.maxVelocity) // convenient
-    this.camera.position.add(this.velocity)
+    console.log(this.checkCollision(this.camera.position, this.camera.position.clone().add(this.velocity)))
 
+    var candidateVelocity = this.velocity.clone().add(forceVector)
+    candidateVelocity.clampLength(0, this.maxVelocity) // convenient
+    var candidatePosition = this.camera.position.clone().add(candidateVelocity)
+    if (!this.checkCollision(this.camera.position, candidatePosition)) {
+      // if no collosion
+      this.velocity = candidateVelocity
+      this.camera.position.set(candidatePosition.x, candidatePosition.y, candidatePosition.z)
+    }
+
+    // Camera rotation
     // Keep in mind that the direction of the camera will change
     this.camera.rotateOnWorldAxis((new THREE.Vector3(0, 1, 0)).cross(cameraDirection).normalize(), this.rotationSensitivty * this.mouseMoveBuffer.y)
     this.camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -this.rotationSensitivty * this.mouseMoveBuffer.x)
     // this.camera.quaternion.setFromAxisAngle(cameraDirection, 0)
     this.mouseMoveBuffer = {x: 0, y: 0}
+
   }
 
 }
