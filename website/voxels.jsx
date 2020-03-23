@@ -29,13 +29,17 @@ class Voxels extends React.Component {
 
     // Initialize blocks
     var randomColor = require('randomcolor')
-    const worldSize = 64 //# blocks makes no diff when staring off into void
+    const worldSize = 16 //# blocks makes no diff when staring off into void
     this.blocks = ndarray(new Uint8Array(4*worldSize**3), [worldSize, worldSize, worldSize, 4])
     for ( let i =0; i < worldSize; i++) {
       for(var j=0; j < worldSize; j++) {
         for(var k=0; k < worldSize; k++) {
-          // this.blocks.set(i, j, k, 3, 0)
-          this.blocks.set(i, j, k, 3, Math.floor(Math.random()*1.6))
+          this.blocks.set(i, j, k, 3, 0)
+          // if (j == 0) {
+          //   this.blocks.set(i, j, k, 3, 1)
+          // }
+          this.blocks.set(i, j, k, 3, Math.floor(Math.random()*1.02))
+          // this.blocks.set(i, j, k, 3, 1)
           let color = randomColor({format:"rgbArray"})
           this.blocks.set(i, j, k, 0, color[0])
           this.blocks.set(i, j, k, 1, color[1])
@@ -61,17 +65,11 @@ class Voxels extends React.Component {
     })
 
 
-    var blocksReshape = ndarray(this.blocks.data, [worldSize, worldSize**2, 4])
-    var blocksTexture = this.regl.texture({
-      shape: [worldSize, worldSize**2, 4],
-      type: "uint8",
-      data: blocksReshape.data})
-
-      // var image = new Image()
-      // image.src = 'https://i.imgur.com/0B6nUmB.jpg'
-      // image.crossOrigin = "";
-      // image.onload = () => {imageTexture(image)}
-      var imageTexture = this.regl.texture()
+    // var image = new Image()
+    // image.src = 'https://i.imgur.com/0B6nUmB.jpg'
+    // image.crossOrigin = "";
+    // image.onload = () => {imageTexture(image)}
+    var imageTexture = this.regl.texture()
 
     var invViewMatrix = ({viewportWidth, viewportHeight}) => {
       // view matrix is this.camera.matrixWorldInverse
@@ -147,7 +145,7 @@ class Voxels extends React.Component {
 
             vec3 rayPos = cameraPos + rayDir * t;
 
-            if (clamp(rayPos, 0.0, float(worldSize)-0.0000000001) == rayPos) {
+            if (clamp(rayPos, 0.0, float(worldSize) - 0.0000000001) == rayPos) {
               vec3 edge = vec3(floor(rayPos.x), floor(rayPos.y), floor(rayPos.z));
               vec2 blockIdxs = vec2(edge.x,edge.y*worldSize + edge.z);
               vec4 blockValue = texture2DLodEXT(blocks, blockIdxs/vec2(worldSize, worldSize*worldSize), 0.0);
@@ -168,7 +166,7 @@ class Voxels extends React.Component {
                   if (dot(hitNorm, -lightDir) < 0.0) {
                     reflectRayCosSim = 0.0;
                   }
-                  vec3 colorMix  = (reflectRayCosSim + 0.6*rayNormCosSim + 0.5) * blockValue.xyz;
+                  vec3 colorMix  = (0.3*reflectRayCosSim + 0.6*rayNormCosSim + 0.5) * blockValue.xyz;
                   gl_FragColor = vec4(colorMix, 1.0);
                   // gl_FragColor = vec4(textureCoords, 0.0, 1.0);
                   // gl_FragColor = texture2D(imageTexture, textureCoords);
@@ -218,7 +216,11 @@ class Voxels extends React.Component {
       uniforms: {
         // This defines the color of the triangle to be a dynamic variable
         color: this.regl.prop('color'),
-        blocks: blocksTexture,
+        blocks: (() => {
+          var blocksReshape = ndarray(this.blocks.data, [worldSize, worldSize**2, 4])
+          var blocksTexture = this.regl.texture(blocksReshape)
+          return blocksTexture
+        }),
         viewportSize: context => ([context.viewportWidth, context.viewportHeight, ]),
         invProjection: invProjectionMatrix,
         invView: invViewMatrix,
@@ -517,19 +519,66 @@ class FlyControls {
     this.capturingMouseMovement ? this.domElement.requestPointerLock() : document.exitPointerLock()
   }
 
-  checkCollision(oldLocation, newLocation) {
-    var delta = newLocation - oldLocation
-    var currentBlock = oldLocation.clone().floor()
-    var worldSize = this.blocks.shape
+  argmax(vector3) {
+    if (vector3.x > vector3.y) {
+      if (vector3.z > vector3.x) {
+        return 2
+      }
+      return 0
+    } else {
+      if (vector3.z > vector3.y) {
+        return 2
+      }
+      return 1
+    }
+  }
 
-    if (currentBlock.clone().clamp(new THREE.Vector3(0,0,0), new THREE.Vector3(...this.blocks.shape)).equals(currentBlock)) {
-      var possibleBlockIdx = ["x", "y", "z"].map(dim => currentBlock[dim] + Math.sign(oldLocation[dim]))
-      var isBlock = this.blocks.get(...possibleBlockIdx, 3)
-      return isBlock != 0
+  abs(vector3) {
+    var absVec = new THREE.Vector3(Math.abs(vector3.x), Math.abs(vector3.y), Math.abs(vector3.z))
+    return absVec
+  }
+
+  checkCollisionUpdateVel(newLocation, velocity) {
+    var playerBox = new THREE.Box3(new THREE.Vector3(newLocation.x - 0.5, newLocation.y - 1.5, newLocation.z - 0.5), new THREE.Vector3(newLocation.x +0.5, newLocation.y + 0.5, newLocation.z + 0.5))
+
+    // only works with this exact box shape (1x1x2), can prob generalize if need
+    // if want to make playerBox smaller, add a Box3.intersects check after if(isBlock) {...}
+    var xLocations = [Math.floor(playerBox.min.x), Math.floor(playerBox.max.x)]
+    var yLocations = [Math.floor(playerBox.min.y), Math.floor(playerBox.min.y+1), Math.floor(playerBox.max.y)]
+    var zLocations = [Math.floor(playerBox.min.z), Math.floor(playerBox.max.z)]
+
+    for (var i=0; i < xLocations.length; i++) {
+      for (var j=0; j < yLocations.length; j++) {
+        for (var k=0; k < zLocations.length; k++) {
+
+          var possibleBlock = new THREE.Vector3(xLocations[i], yLocations[j], zLocations[k])
+          var isWithinBounds = possibleBlock.clone().clamp(new THREE.Vector3(0,0,0), (new THREE.Vector3(...this.blocks.shape)).subScalar(1)).equals(possibleBlock)
+          if (isWithinBounds) {
+            var isBlock = this.blocks.get(xLocations[i], yLocations[j], zLocations[k], 3) != 0
+            if (isBlock) {
+              var bodyRef
+              if (j == 0) {
+                bodyRef = (new THREE.Vector3(0, -1, 0)).add(newLocation) // reference from bottom block of body
+              } else if (j == 1) {
+                bodyRef = (new THREE.Vector3(0, -0.5, 0)).add(newLocation) // reference from middle of body
+              } else if (j == 2) {
+                bodyRef = newLocation // reference from top of body
+              }
+              var normal = new THREE.Vector3(0, 0, 0)
+              var dist = possibleBlock.clone().addScalar(0.5).sub(bodyRef) // vector from bodyRef to block Center
+              var maxDim = this.argmax(this.abs(dist))
+              normal.setComponent(maxDim, -Math.sign(dist.getComponent(maxDim)))
+
+              if (Math.sign(velocity.getComponent(maxDim)) == -normal.getComponent(maxDim)) {
+                velocity.setComponent(maxDim, 0)
+              }
+            }
+          }
+        }
+      }
     }
 
     return false
-
   }
 
   externalTick(timeDelta) {
@@ -564,22 +613,27 @@ class FlyControls {
     }
     forceVector.add(decelerationForce)
 
-    console.log(this.checkCollision(this.camera.position, this.camera.position.clone().add(this.velocity)))
 
     var candidateVelocity = this.velocity.clone().add(forceVector)
     candidateVelocity.clampLength(0, this.maxVelocity) // convenient
     var candidatePosition = this.camera.position.clone().add(candidateVelocity)
-    if (!this.checkCollision(this.camera.position, candidatePosition)) {
-      // if no collosion
-      this.velocity = candidateVelocity
-      this.camera.position.set(candidatePosition.x, candidatePosition.y, candidatePosition.z)
-    }
+
+    this.checkCollisionUpdateVel(candidatePosition, candidateVelocity)
+    this.velocity = candidateVelocity
+    var newPosition = this.camera.position.clone().add(candidateVelocity)
+    this.camera.position.set(newPosition.x, newPosition.y, newPosition.z)
 
     // Camera rotation
-    // Keep in mind that the direction of the camera will change
-    this.camera.rotateOnWorldAxis((new THREE.Vector3(0, 1, 0)).cross(cameraDirection).normalize(), this.rotationSensitivty * this.mouseMoveBuffer.y)
+    // Can move head more than 90 deg if move camera quickly
+    var cameraCrossVec = (new THREE.Vector3(0, 1, 0)).cross(cameraDirection).normalize()
+    var angleToStraightUpDown = cameraDirection.angleTo(new THREE.Vector3(0, 1, 0)) // straight up and down
+    const minAngle = 0.27
+    var tiltDir = Math.sign(this.mouseMoveBuffer.y)
+    if ((angleToStraightUpDown < minAngle && tiltDir == 1) || (angleToStraightUpDown > (Math.PI - minAngle) && tiltDir == -1) || (angleToStraightUpDown > minAngle && angleToStraightUpDown < (Math.PI - minAngle))) {
+      this.camera.rotateOnWorldAxis(cameraCrossVec, this.rotationSensitivty * this.mouseMoveBuffer.y)
+    }
     this.camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -this.rotationSensitivty * this.mouseMoveBuffer.x)
-    // this.camera.quaternion.setFromAxisAngle(cameraDirection, 0)
+
     this.mouseMoveBuffer = {x: 0, y: 0}
 
   }
