@@ -13,7 +13,6 @@ jobs:
     steps:
   
     - uses: actions/checkout@v2
-
     - uses: actions/setup-node@master
     
     - name: install and build
@@ -22,13 +21,12 @@ jobs:
         cd website
         parcel build index.html   
      
-    # later, may want to add 1. testing 2. more custom dist/ deployment (e.g. if images)
     - name: Deploy
-      uses: peaceiris/actions-gh-pages@v3
+      uses: w9jds/firebase-action@master
       with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./website/dist
-        cname: polytope.space
-        commit_message: ${{ github.event.head_commit.message }}
-        
+        args: deploy --only hosting
+      env:
+        GCP_SA_KEY: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+        PROJECT_ID: polytope
+        PROJECT_PATH: ./website
     
