@@ -34,7 +34,7 @@ class Voxels extends React.Component {
     const worldSize = [20, 20, 20] //# blocks makes no diff when staring off into void
     this.blockManager = new BlockManager(worldSize)
 
-    this.camera = new THREE.PerspectiveCamera(75, 1.0, 0.1, 1000)
+    this.camera = new THREE.PerspectiveCamera(95, 1.0, 0.1, 1000)
     this.controls = new FlyControls(this.camera, this.canvasRef.current, this.blockManager, this.gameState)
     this.resizeCanvasAndCamera()
     window.addEventListener("resize", () => this.resizeCanvasAndCamera())
@@ -153,12 +153,15 @@ class Voxels extends React.Component {
 
                 vec2 textureCoords = twoNonZero((1.0 - hitNorm) * (hitDists + 0.5));
 
-                vec3 isSideHit = floor(abs(hitDists) / 1.499);
+                vec3 isSideHit = floor(abs(hitDists) / 0.495);
+                bool isEdge = isSideHit.x + isSideHit.y + isSideHit.z >= 2.0;
+                bool shouldDrawEdge = blockValue.x == 1.0/255.0;
 
                 if (false && length(hitDists) > 0.8) {
                   gl_FragColor = vec4(0, 0, 0, 1); // corner marks
-                } else if (isSideHit.x + isSideHit.y + isSideHit.z >= 2.0) {
-                  gl_FragColor = vec4(0.95, 0.95, 0.95, 1); // edge marks
+                } else if (isEdge && shouldDrawEdge) {
+                  // gl_FragColor = vec4(0.95, 0.95, 0.95, 1); // edge marks
+                  gl_FragColor = vec4(0, 0, 0, 1); // edge marks
                 } else {
                   if (dot(hitNorm, -lightDir) < 0.0) {
                     reflectRayCosSim = 0.0;
@@ -363,7 +366,7 @@ class BlockManager {
             this.blocks.set(i, j, k, 3, k + 1)
           }
           if (Math.random() > 0.90) {
-            this.blocks.set(i, j, k, 3, 1 + Math.floor(Math.random()*16))
+            // this.blocks.set(i, j, k, 3, 1 + Math.floor(Math.random()*16))
           }
           // let color = randomColor({format:"rgbArray"})
           if (j == 0) {
@@ -389,6 +392,10 @@ class BlockManager {
 
   removeBlock(pos, id) {
     this.blocks.set(pos.x, pos.y, pos.z, 3, 0)
+  }
+
+  toggleBlockOutline(pos, status) {
+    this.blocks.set(pos.x, pos.y, pos.z, 0, status ? 1 : 0)
   }
 
   withinWorldBounds(pos) {
@@ -470,7 +477,10 @@ class FlyControls {
     this.timeToReachMaxSpeed = 0.6 // in seconds
     this.timeToReachZeroSpeed = 0.2 // in seconds
     this.velocity = new THREE.Vector3(0, 0, 0)
-    this.rotationSensitivty = 0.003 // in radians per (pixel of mouse movement)
+    this.rotationSensitivty = 0.005 // in radians per (pixel of mouse movement)
+
+    // Special callback used for e.g. removing block selection
+    this.onNextTick = null
 
   }
 
@@ -521,10 +531,12 @@ class FlyControls {
   }
 
   checkCollisionUpdateVel(newLocation, velocity) {
-    var playerBox = new THREE.Box3(new THREE.Vector3(newLocation.x - 0.5, newLocation.y - 1.5, newLocation.z - 0.5), new THREE.Vector3(newLocation.x +0.5, newLocation.y + 0.5, newLocation.z + 0.5))
+    var playerBox = new THREE.Box3(new THREE.Vector3(newLocation.x - 0.3, newLocation.y - 1.3, newLocation.z - 0.3), new THREE.Vector3(newLocation.x +0.3, newLocation.y + 0.3, newLocation.z + 0.3))
 
     // only works with this exact box shape (1x1x2), can prob generalize if need
     // if want to make playerBox smaller, add a Box3.intersects check after if(isBlock) {...}
+    // seems like should be simpler way to do it, kinda convluted rn
+    // also, method to get normal doesn't work reliable when flying into ground
     var xLocations = [Math.floor(playerBox.min.x), Math.floor(playerBox.max.x)]
     var yLocations = [Math.floor(playerBox.min.y), Math.floor(playerBox.min.y+1), Math.floor(playerBox.max.y)]
     var zLocations = [Math.floor(playerBox.min.z), Math.floor(playerBox.max.z)]
@@ -537,20 +549,24 @@ class FlyControls {
           var isWithinBounds = possibleBlock.clone().clamp(new THREE.Vector3(0,0,0), (new THREE.Vector3(...this.blockManager.blocks.shape)).subScalar(1)).equals(possibleBlock)
           if (isWithinBounds) {
             // var isBlock = this.blocks.get(xLocations[i], yLocations[j], zLocations[k], 3) != 0
-            var isBlock = this.blockManager.blockExists(new THREE.Vector3(xLocations[i], yLocations[j], zLocations[k]))
+            var isBlock = this.blockManager.blockExists(possibleBlock)
             if (isBlock) {
-              var bodyRef
-              if (j == 0) {
-                bodyRef = (new THREE.Vector3(0, -1, 0)).add(newLocation) // reference from bottom block of body
-              } else if (j == 1) {
-                bodyRef = (new THREE.Vector3(0, -0.5, 0)).add(newLocation) // reference from middle of body
-              } else if (j == 2) {
-                bodyRef = newLocation // reference from top of body
-              }
-              var [normal, maxDim] = this.blockNormalAtLocation(possibleBlock, bodyRef)
+              var blockBox = new THREE.Box3(possibleBlock.clone(), possibleBlock.clone().addScalar(1))
+              var isCollision = playerBox.intersectsBox(blockBox)
+              if (isCollision) {
+                var bodyRef
+                if (j == 0) {
+                  bodyRef = (new THREE.Vector3(0, -1, 0)).add(newLocation) // reference from bottom block of body
+                } else if (j == 1) {
+                  bodyRef = (new THREE.Vector3(0, -0.5, 0)).add(newLocation) // reference from middle of body
+                } else if (j == 2) {
+                  bodyRef = newLocation // reference from top of body
+                }
+                var [normal, maxDim] = this.blockNormalAtLocation(possibleBlock, bodyRef)
 
-              if (Math.sign(velocity.getComponent(maxDim)) == -normal.getComponent(maxDim)) {
-                velocity.setComponent(maxDim, 0)
+                if (Math.sign(velocity.getComponent(maxDim)) == -normal.getComponent(maxDim)) {
+                  velocity.setComponent(maxDim, 0)
+                }
               }
             }
           }
@@ -562,6 +578,9 @@ class FlyControls {
   }
 
   externalTick(timeDelta) {
+    this.onNextTick && this.onNextTick()
+    this.onNextTick = null
+
     var cameraDirection = new THREE.Vector3()
     this.camera.getWorldDirection(cameraDirection)
     var forceVector = new THREE.Vector3(0, 0, 0)
@@ -618,8 +637,14 @@ class FlyControls {
 
 
     // interaction with blocks
+    var raymarchResult = this.blockManager.raymarchToBlock(this.camera.position, cameraDirection, 5)
+    if (raymarchResult) {
+      var [blockPos, hitPos] = raymarchResult
+      this.blockManager.toggleBlockOutline(blockPos, true)
+      this.onNextTick = () => this.blockManager.toggleBlockOutline(blockPos, false)
+    }
+
     if (this.clickBuffer.rightClick > 0) {
-      var raymarchResult = this.blockManager.raymarchToBlock(this.camera.position, cameraDirection, 10)
       if (raymarchResult) {
         var [blockPos, hitPos] = raymarchResult
         var [normal, dim] = this.blockNormalAtLocation(blockPos, hitPos)
@@ -632,7 +657,7 @@ class FlyControls {
       this.clickBuffer.rightClick = 0
     } else if (this.clickBuffer.click > 0) {
       for (var i = 0; i< this.clickBuffer.click; i++) {
-        var raymarchResult = this.blockManager.raymarchToBlock(this.camera.position, cameraDirection, 10)
+        var raymarchResult = this.blockManager.raymarchToBlock(this.camera.position, cameraDirection, 5)
         if (raymarchResult) {
           var [blockPos, hitPos] = raymarchResult
           this.blockManager.removeBlock(blockPos)
