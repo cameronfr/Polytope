@@ -327,6 +327,31 @@ class GameControlPanel extends React.Component {
     this.state = {
       selectedBlockColor: this.gameState.selectedBlockColor
     }
+    window.addEventListener("keydown", e => {
+      console.log("keydown")
+      var key = e.key
+      var gridWidth = 4
+      var gridHeight = 4
+      var row = Math.floor((this.state.selectedBlockColor - 1) / gridWidth)
+      var col = (this.state.selectedBlockColor - 1) % gridWidth
+      if (key == "ArrowLeft") {
+        col -= 1
+      } else if (key == "ArrowRight") {
+        col += 1
+      } else if (key == "ArrowUp") {
+        row -= 1
+      } else if (key == "ArrowDown") {
+        row += 1
+      }
+      if (row >= 0 && col >= 0 && row < gridHeight && col < gridWidth) {
+        this.setSelectedBlockColor((row * gridWidth + col) + 1)
+      }
+    })
+  }
+
+  setSelectedBlockColor(selectedBlockColor) {
+    this.setState({selectedBlockColor: selectedBlockColor})
+    this.gameState.selectedBlockColor = selectedBlockColor
   }
 
   render() {
@@ -337,8 +362,7 @@ class GameControlPanel extends React.Component {
           var border = isSelected ? "2px solid #00C5CD" : "1px solid #000"
           var size = isSelected ? 28 : 30 //not sure why 30px vs 31px results in no visible size change.
           var onClick = e => {
-            this.setState({selectedBlockColor: color.id + 1})
-            this.gameState.selectedBlockColor = color.id + 1
+            this.setSelectedBlockColor(color.id + 1)
           }
           var div = <div
             style={{margin: THEME.sizing.scale400, backgroundColor: color.hex, height: `${size}px`, width: `${size}px`, borderRadius: "5px", cursor: "pointer", border}}
