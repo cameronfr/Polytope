@@ -348,12 +348,12 @@ class Header extends React.Component {
         </StyledNavigationList>
         <StyledNavigationList $align={ALIGN.right}>
           <StyledNavigationItem style={{paddingLeft: "0px"}}>
-            <Button onClick={() => navigate("home")} kind={KIND.minimal} size={SIZE.default}>
+            <Button onClick={() => navigate("/home")} kind={KIND.minimal} size={SIZE.default}>
               Home
             </Button>
           </StyledNavigationItem>
           <StyledNavigationItem style={{paddingLeft: "0"}}>
-            <Button onClick={() => navigate("newItem")} kind={KIND.minimal} size={SIZE.default}>
+            <Button onClick={() => navigate("/newItem")} kind={KIND.minimal} size={SIZE.default}>
               Create Item
             </Button>
           </StyledNavigationItem>

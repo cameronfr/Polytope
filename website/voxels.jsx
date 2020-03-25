@@ -16,10 +16,13 @@ import {LightTheme, BaseProvider, styled} from 'baseui';
 const THEME = LightTheme
 
 class Voxels extends React.Component {
+
+
   constructor(props) {
     super(props)
     this.canvasRef = React.createRef()
     this.containerRef = React.createRef()
+    this.gameState = new GameState()
   }
 
   componentDidMount() {
@@ -28,28 +31,11 @@ class Voxels extends React.Component {
     this.containerRef.current.appendChild(stats.dom)
 
     // Initialize blocks
-    var randomColor = require('randomcolor')
-    const worldSize = 16 //# blocks makes no diff when staring off into void
-    this.blocks = ndarray(new Uint8Array(4*worldSize**3), [worldSize, worldSize, worldSize, 4])
-    for ( let i =0; i < worldSize; i++) {
-      for(var j=0; j < worldSize; j++) {
-        for(var k=0; k < worldSize; k++) {
-          this.blocks.set(i, j, k, 3, 0)
-          // if (j == 0) {
-          //   this.blocks.set(i, j, k, 3, 1)
-          // }
-          this.blocks.set(i, j, k, 3, Math.floor(Math.random()*1.02))
-          // this.blocks.set(i, j, k, 3, 1)
-          let color = randomColor({format:"rgbArray"})
-          this.blocks.set(i, j, k, 0, color[0])
-          this.blocks.set(i, j, k, 1, color[1])
-          this.blocks.set(i, j, k, 2, color[2])
-        }
-      }
-    }
+    const worldSize = [20, 20, 20] //# blocks makes no diff when staring off into void
+    this.blockManager = new BlockManager(worldSize)
 
     this.camera = new THREE.PerspectiveCamera(75, 1.0, 0.1, 1000)
-    this.controls = new FlyControls(this.camera, this.canvasRef.current, this.blocks)
+    this.controls = new FlyControls(this.camera, this.canvasRef.current, this.blockManager, this.gameState)
     this.resizeCanvasAndCamera()
     window.addEventListener("resize", () => this.resizeCanvasAndCamera())
     this.regl = Regl({
@@ -88,14 +74,16 @@ class Voxels extends React.Component {
         #extension GL_EXT_shader_texture_lod : enable
         #extension GL_OES_standard_derivatives : enable
 
-        //precision mediump float;
-        precision highp float;
+        precision mediump float;
+        // precision highp float;
         uniform vec4 color;
         uniform sampler2D blocks;
         uniform sampler2D imageTexture;
         uniform vec2 viewportSize;
         uniform mat4 invProjection;
         uniform mat4 invView;
+        uniform float timeMS;
+        uniform sampler2D colorStorage;
 
         // robobo1221
         vec3 getSky(vec2 uv){
@@ -127,6 +115,11 @@ class Voxels extends React.Component {
         }
 
         void main() {
+          // Add center cursor
+          if (length(gl_FragCoord.xy - (viewportSize.xy / 2.0)) < 2.0) {
+            gl_FragColor = vec4(0.2, 0.2, 0.2, 1);
+            return;
+          }
           vec2 scaledScreenCoord = 2.0 * ((gl_FragCoord.xy / viewportSize.xy) - 0.5); // -1 to 1
           mat4 inverseViewProjection = invView * invProjection;
           vec4 unscaledWorldCoords = inverseViewProjection * vec4(scaledScreenCoord, 0, 1);
@@ -137,7 +130,7 @@ class Voxels extends React.Component {
           const vec3 lightDir = normalize(vec3(1, -1, 1));
 
           const float eps = 0.0001;
-          const float worldSize = ${worldSize.toFixed(1)};
+          const float worldSize = ${worldSize[0].toFixed(1)};
           const float maxDist = 30.0;
           float t = 0.0;
           // while loops not allowed in Webgl 1 :/
@@ -150,7 +143,7 @@ class Voxels extends React.Component {
               vec2 blockIdxs = vec2(edge.x,edge.y*worldSize + edge.z);
               vec4 blockValue = texture2DLodEXT(blocks, blockIdxs/vec2(worldSize, worldSize*worldSize), 0.0);
 
-              if (blockValue.a > 0.0) {
+              if (blockValue.a != 0.0) {
                 vec3 hitDists = rayPos - (edge + 0.5);
                 vec3 hitNorm = vec3(ivec3(hitDists / maxOf(abs(hitDists))));
 
@@ -160,14 +153,20 @@ class Voxels extends React.Component {
 
                 vec2 textureCoords = twoNonZero((1.0 - hitNorm) * (hitDists + 0.5));
 
-                if (length(hitDists) > 0.8) {
-                  gl_FragColor = vec4(0, 0, 0, 1);
+                vec3 isSideHit = floor(abs(hitDists) / 1.499);
+
+                if (false && length(hitDists) > 0.8) {
+                  gl_FragColor = vec4(0, 0, 0, 1); // corner marks
+                } else if (isSideHit.x + isSideHit.y + isSideHit.z >= 2.0) {
+                  gl_FragColor = vec4(0.95, 0.95, 0.95, 1); // edge marks
                 } else {
                   if (dot(hitNorm, -lightDir) < 0.0) {
                     reflectRayCosSim = 0.0;
                   }
-                  vec3 colorMix  = (0.3*reflectRayCosSim + 0.6*rayNormCosSim + 0.5) * blockValue.xyz;
-                  gl_FragColor = vec4(colorMix, 1.0);
+                  float blockIdx = floor(blockValue.a * 255.0) - 1.0;
+                  vec3 blockColor = texture2DLodEXT(colorStorage, vec2(blockIdx/16.0, 0.0), 0.0).rgb;
+                  vec3 colorMix  = (0.0*reflectRayCosSim + 0.6*rayNormCosSim + 0.66) * blockColor;
+                  gl_FragColor = vec4(colorMix, 1);
                   // gl_FragColor = vec4(textureCoords, 0.0, 1.0);
                   // gl_FragColor = texture2D(imageTexture, textureCoords);
                 }
@@ -217,7 +216,7 @@ class Voxels extends React.Component {
         // This defines the color of the triangle to be a dynamic variable
         color: this.regl.prop('color'),
         blocks: (() => {
-          var blocksReshape = ndarray(this.blocks.data, [worldSize, worldSize**2, 4])
+          var blocksReshape = ndarray(this.blockManager.data, [worldSize[0], worldSize[1]*worldSize[2], 4])
           var blocksTexture = this.regl.texture(blocksReshape)
           return blocksTexture
         }),
@@ -225,6 +224,9 @@ class Voxels extends React.Component {
         invProjection: invProjectionMatrix,
         invView: invViewMatrix,
         imageTexture: imageTexture,
+        timeMS: (() => (Date.now() / 1000) % 6.28),
+        colorStorage: this.regl.texture([this.gameState.blockColors.map(c => this.hexToRGB(c.hex))]),
+        //...Object.fromEntries(this.blockColors.map((c, idx) => [`colorStorage[${idx}]`, this.hexToRGB(c.hex)]))
       },
 
       // This tells regl the number of vertices to draw in this command
@@ -254,11 +256,16 @@ class Voxels extends React.Component {
 
   }
 
+  hexToRGB(h) {
+    return [+("0x"+h[1]+h[2]), +("0x"+h[3]+h[4]), +("0x"+h[5]+h[6])]
+  }
+
   resizeCanvasAndCamera() {
     const canvas = this.canvasRef.current
     const { height, width} = canvas.getBoundingClientRect();
-    canvas.width = width
-    canvas.height = height
+    const pixelRatio = 1; //window.devicePixelRatio // retina (4x pixels) is crisp and beautiful but too laggy
+    canvas.width = width * pixelRatio
+    canvas.height = height * pixelRatio
     this.camera.aspect = width / height
     this.camera.updateProjectionMatrix()
 
@@ -267,20 +274,383 @@ class Voxels extends React.Component {
   render() {
     return (
       <div style={{width: "100%", height:"100%"}}>
-        <div style={{display: "flex", flexDirection: "row", height: "100%", padding: THEME.sizing.scale1000, boxSizing: "border-box"}}>
+        <div style={{display: "flex", flexDirection: "row", padding: THEME.sizing.scale1000, boxSizing: "border-box", height: "100%"}}>
           <div ref={this.containerRef} style={{flexGrow: "1", display: "flex", flexDirection: "column"}}>
             <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", flexGrow: "1"}}>
               <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
             </div>
           </div>
-          <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", cursor: "pointer", padding: THEME.sizing.scale600, marginLeft: THEME.sizing.scale1000}}>
-            hi i am a big margin
+          <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", padding: THEME.sizing.scale600, marginLeft: THEME.sizing.scale1000}}>
+            <GameControlPanel gameState={this.gameState}/>
+            testing123
           </div>
         </div>
       </div>
     )
   }
 }
+
+class GameState {
+
+  // modified Island Joy 16: kerrielake
+  blockColors = [
+    {id:0,name: "white", hex: "#ffffff"},
+    {id:1,name: "peach", hex: "#f7b69e"},
+    {id:2,name: "clayRed", hex: "#cb4d68"},
+    {id:3,name: "crimson", hex: "#c92464"},
+    {id:4,name: "orange", hex: "#f99252"},
+    {id:5,name: "yellow", hex: "#f7e476"},
+    {id:6,name: "livelyGreen", hex: "#a1e55a"},
+    {id:7,name: "leafGreen", hex: "#5bb361"},
+    {id:8,name: "teal", hex: "#6df7c1"},
+    {id:9,name: "waterBlue", hex: "#11adc1"},
+    {id:10,name: "coralBlue", hex: "#1e8875"},
+    {id:11,name: "royalPurple", hex: "#6a3771"},
+    {id:12,name: "deepPurple", hex: "#393457"},
+    {id:13,name: "gray", hex: "#606c81"},
+    {id:14,name: "brown", hex: "#644536"},
+    {id:15,name: "rock", hex: "#9b9c82"},
+  ]
+
+  constructor() {
+    this.selectedBlockColor = 1
+  }
+}
+
+class GameControlPanel extends React.Component {
+  constructor(props) {
+    super(props)
+    this.gameState = props.gameState
+    this.state = {
+      selectedBlockColor: this.gameState.selectedBlockColor
+    }
+  }
+
+  render() {
+    return (
+      <div style={{display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr"}}>
+        {this.gameState.blockColors.map(color => {
+          var isSelected = this.state.selectedBlockColor == color.id + 1
+          var border = isSelected ? "2px solid #00C5CD" : "1px solid #000"
+          var size = isSelected ? 28 : 30 //not sure why 30px vs 31px results in no visible size change.
+          var onClick = e => {
+            this.setState({selectedBlockColor: color.id + 1})
+            this.gameState.selectedBlockColor = color.id + 1
+          }
+          var div = <div
+            style={{margin: THEME.sizing.scale400, backgroundColor: color.hex, height: `${size}px`, width: `${size}px`, borderRadius: "5px", cursor: "pointer", border}}
+            onClick={onClick}
+            key={color.hex}
+            >
+          </div>
+          return div
+        })}
+      </div>
+    )
+  }
+
+}
+
+class BlockManager {
+
+  constructor(worldSize) {
+    this.worldSize = worldSize
+    this.blocks = ndarray(new Uint8Array(4*worldSize[0]*worldSize[1]*worldSize[2]), [...worldSize, 4])
+    for (var i =0; i < worldSize[0]; i++) {
+      for(var j=0; j < worldSize[1]; j++) {
+        for(var k=0; k < worldSize[2]; k++) {
+          if (j == 1 && i == 1) {
+            this.blocks.set(i, j, k, 3, k + 1)
+          }
+          if (Math.random() > 0.90) {
+            this.blocks.set(i, j, k, 3, 1 + Math.floor(Math.random()*16))
+          }
+          // let color = randomColor({format:"rgbArray"})
+          if (j == 0) {
+            this.blocks.set(i, j, k, 3, 1)
+          }
+        }
+      }
+    }
+    this.data = this.blocks.data
+  }
+
+  blockExists(pos) {
+    if (!this.withinWorldBounds(pos)) {
+      return false
+    }
+    let exists = this.blocks.get(pos.x, pos.y, pos.z, 3) != 0
+    return exists
+  }
+
+  addBlock(pos, id) {
+    this.blocks.set(pos.x, pos.y, pos.z, 3, id)
+  }
+
+  removeBlock(pos, id) {
+    this.blocks.set(pos.x, pos.y, pos.z, 3, 0)
+  }
+
+  withinWorldBounds(pos) {
+    var within = true
+    within = within && (pos.x < this.worldSize[0]) && (pos.x >= 0)
+    within = within && (pos.y < this.worldSize[1]) && (pos.y >= 0)
+    within = within && (pos.z < this.worldSize[2]) && (pos.z >= 0)
+    return within
+  }
+
+  // normalize dirVec
+  raymarchToBlock (posVec, dirVec, maxDist) {
+    var fract = n => n - Math.floor(n)
+    var rayPos = posVec.clone()
+    var t = 0
+    while(t < maxDist) {
+      var blockPos = rayPos.clone().floor()
+      if (this.blockExists(blockPos)) {
+        var hitPos = rayPos
+        return [blockPos, hitPos]
+      }
+      var timeToPlaneX = (dirVec.x > 0) ? (1 - fract(rayPos.x)) : (fract(rayPos.x) / Math.abs(dirVec.x))
+      var timeToPlaneY = (dirVec.y > 0) ? (1 - fract(rayPos.y)) : (fract(rayPos.y) / Math.abs(dirVec.y))
+      var timeToPlaneZ = (dirVec.z > 0) ? (1 - fract(rayPos.z)) : (fract(rayPos.z) / Math.abs(dirVec.z))
+      var deltaT = 0.00001 + Math.min(timeToPlaneX, timeToPlaneY, timeToPlaneZ)
+      t += deltaT
+      rayPos.add(dirVec.clone().multiplyScalar(deltaT))
+    }
+    return null
+  }
+}
+
+class FlyControls {
+
+  constructor(camera, domElement, blockManager, gameState) {
+    this.camera = camera
+    this.domElement = domElement
+    this.blockManager = blockManager
+    this.gameState = gameState
+
+
+    window.addEventListener("keydown", e => {
+      this.updateKeystates(e.key, true)
+      e.key == "e" && this.toggleMouseCapture()
+    })
+    window.addEventListener("keyup", e => {
+      this.updateKeystates(e.key, false)
+    })
+    domElement.addEventListener("mousedown", e => {
+      if (e.which == 1) { // left click
+        if (!this.capturingMouseMovement) {
+          this.domElement.requestPointerLock()
+        } else {
+          this.clickBuffer.click += 1
+        }
+      } else if (e.which == 3) {
+          this.clickBuffer.rightClick += 1
+      }
+    })
+    document.addEventListener('pointerlockchange', () => {
+      if (!(document.pointerLockElement == this.domElement)) {
+        this.capturingMouseMovement = false
+      } else {
+        this.capturingMouseMovement = true
+      }
+    });
+    domElement.addEventListener("mouseup", e => {
+    })
+    domElement.addEventListener("mousemove", e => this.capturingMouseMovement && this.updateMouseBuffer(e.movementX, e.movementY))
+
+    this.keyState = {}
+    this.mouseMoveBuffer = {x: 0, y: 0}
+    this.clickBuffer = {click: 0, rightClick: 0}
+    this.captureMouseMovement = false
+
+    // Configuration
+    this.toggleMouseCaptureKey = "e"
+    this.maxVelocity = 0.2 // in units/seconds
+    this.timeToReachMaxSpeed = 0.6 // in seconds
+    this.timeToReachZeroSpeed = 0.2 // in seconds
+    this.velocity = new THREE.Vector3(0, 0, 0)
+    this.rotationSensitivty = 0.003 // in radians per (pixel of mouse movement)
+
+  }
+
+  updateMouseBuffer(movementX, movementY) {
+    this.mouseMoveBuffer.x += movementX
+    this.mouseMoveBuffer.y += movementY
+  }
+
+  updateKeystates(key, isDown) {
+    key = key.toLowerCase() // possible to have keyUp for "a" and then keyDown for "A" if shift involved.
+    if (isDown) {
+      this.keyState[key] = true
+    } else {
+      delete this.keyState[key]
+    }
+  }
+
+  toggleMouseCapture() {
+    this.capturingMouseMovement = !this.capturingMouseMovement
+    this.capturingMouseMovement ? this.domElement.requestPointerLock() : document.exitPointerLock()
+  }
+
+  argmax(vector3) {
+    if (vector3.x > vector3.y) {
+      if (vector3.z > vector3.x) {
+        return 2
+      }
+      return 0
+    } else {
+      if (vector3.z > vector3.y) {
+        return 2
+      }
+      return 1
+    }
+  }
+
+  abs(vector3) {
+    var absVec = new THREE.Vector3(Math.abs(vector3.x), Math.abs(vector3.y), Math.abs(vector3.z))
+    return absVec
+  }
+
+  blockNormalAtLocation(blockIdx, location) {
+    var normal = new THREE.Vector3(0, 0, 0)
+    var dist = blockIdx.clone().addScalar(0.5).sub(location) // vector from location to block Center
+    var maxDim = this.argmax(this.abs(dist))
+    normal.setComponent(maxDim, -Math.sign(dist.getComponent(maxDim)))
+    return [normal, maxDim]
+  }
+
+  checkCollisionUpdateVel(newLocation, velocity) {
+    var playerBox = new THREE.Box3(new THREE.Vector3(newLocation.x - 0.5, newLocation.y - 1.5, newLocation.z - 0.5), new THREE.Vector3(newLocation.x +0.5, newLocation.y + 0.5, newLocation.z + 0.5))
+
+    // only works with this exact box shape (1x1x2), can prob generalize if need
+    // if want to make playerBox smaller, add a Box3.intersects check after if(isBlock) {...}
+    var xLocations = [Math.floor(playerBox.min.x), Math.floor(playerBox.max.x)]
+    var yLocations = [Math.floor(playerBox.min.y), Math.floor(playerBox.min.y+1), Math.floor(playerBox.max.y)]
+    var zLocations = [Math.floor(playerBox.min.z), Math.floor(playerBox.max.z)]
+
+    for (var i=0; i < xLocations.length; i++) {
+      for (var j=0; j < yLocations.length; j++) {
+        for (var k=0; k < zLocations.length; k++) {
+
+          var possibleBlock = new THREE.Vector3(xLocations[i], yLocations[j], zLocations[k])
+          var isWithinBounds = possibleBlock.clone().clamp(new THREE.Vector3(0,0,0), (new THREE.Vector3(...this.blockManager.blocks.shape)).subScalar(1)).equals(possibleBlock)
+          if (isWithinBounds) {
+            // var isBlock = this.blocks.get(xLocations[i], yLocations[j], zLocations[k], 3) != 0
+            var isBlock = this.blockManager.blockExists(new THREE.Vector3(xLocations[i], yLocations[j], zLocations[k]))
+            if (isBlock) {
+              var bodyRef
+              if (j == 0) {
+                bodyRef = (new THREE.Vector3(0, -1, 0)).add(newLocation) // reference from bottom block of body
+              } else if (j == 1) {
+                bodyRef = (new THREE.Vector3(0, -0.5, 0)).add(newLocation) // reference from middle of body
+              } else if (j == 2) {
+                bodyRef = newLocation // reference from top of body
+              }
+              var [normal, maxDim] = this.blockNormalAtLocation(possibleBlock, bodyRef)
+
+              if (Math.sign(velocity.getComponent(maxDim)) == -normal.getComponent(maxDim)) {
+                velocity.setComponent(maxDim, 0)
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return false
+  }
+
+  externalTick(timeDelta) {
+    var cameraDirection = new THREE.Vector3()
+    this.camera.getWorldDirection(cameraDirection)
+    var forceVector = new THREE.Vector3(0, 0, 0)
+
+    if ("w" in this.keyState) {
+      forceVector.add(cameraDirection)
+    } if ("s" in this.keyState) {
+      forceVector.add(cameraDirection.clone().negate())
+    } if ("a" in this.keyState) {
+      forceVector.add((new THREE.Vector3(0, 1, 0)).cross(cameraDirection))
+    } if ("d" in this.keyState) {
+      forceVector.add((new THREE.Vector3(0, 1, 0)).cross(cameraDirection).negate())
+    } if (" " in this.keyState) {
+      forceVector.add(new THREE.Vector3(0, 1, 0))
+    } if ("shift" in this.keyState) {
+      forceVector.add(new THREE.Vector3(0, -1, 0))
+    }
+
+    const acceleration = this.maxVelocity * (timeDelta/this.timeToReachMaxSpeed)
+    const deceleration = this.maxVelocity * (timeDelta/this.timeToReachZeroSpeed)
+    forceVector.multiplyScalar(acceleration)
+    // don't apply decel force that will flip velocity sign
+    var decelerationForce = this.velocity.clone().normalize().negate().multiplyScalar(Math.min(deceleration, this.velocity.length()))
+
+    // Have constant deceleration force when no input.
+    var haveMoveInput = !forceVector.equals(new THREE.Vector3(0, 0, 0))
+    if (haveMoveInput) {
+      forceVector.sub(decelerationForce)
+    }
+    forceVector.add(decelerationForce)
+
+
+    var candidateVelocity = this.velocity.clone().add(forceVector)
+    candidateVelocity.clampLength(0, this.maxVelocity) // convenient
+    var candidatePosition = this.camera.position.clone().add(candidateVelocity)
+
+    this.checkCollisionUpdateVel(candidatePosition, candidateVelocity)
+    this.velocity = candidateVelocity
+    var newPosition = this.camera.position.clone().add(candidateVelocity)
+    this.camera.position.set(newPosition.x, newPosition.y, newPosition.z)
+
+    // Camera rotation
+    // Can move head more than 90 deg if move camera quickly
+    var cameraCrossVec = (new THREE.Vector3(0, 1, 0)).cross(cameraDirection).normalize()
+    var angleToStraightUpDown = cameraDirection.angleTo(new THREE.Vector3(0, 1, 0)) // straight up and down
+    const minAngle = 0.2
+    var tiltDir = Math.sign(this.mouseMoveBuffer.y)
+    if ((angleToStraightUpDown < minAngle && tiltDir == 1) || (angleToStraightUpDown > (Math.PI - minAngle) && tiltDir == -1) || (angleToStraightUpDown > minAngle && angleToStraightUpDown < (Math.PI - minAngle))) {
+      this.camera.rotateOnWorldAxis(cameraCrossVec, this.rotationSensitivty * this.mouseMoveBuffer.y)
+    }
+    this.camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -this.rotationSensitivty * this.mouseMoveBuffer.x)
+
+    this.mouseMoveBuffer = {x: 0, y: 0}
+
+
+    // interaction with blocks
+    if (this.clickBuffer.rightClick > 0) {
+      var raymarchResult = this.blockManager.raymarchToBlock(this.camera.position, cameraDirection, 10)
+      if (raymarchResult) {
+        var [blockPos, hitPos] = raymarchResult
+        var [normal, dim] = this.blockNormalAtLocation(blockPos, hitPos)
+        var newBlockPos = normal.add(blockPos)
+        for (var i = 0; i< this.clickBuffer.rightClick; i++) {
+          this.blockManager.addBlock(newBlockPos, this.gameState.selectedBlockColor)
+          // todo: don't add if collision
+        }
+      }
+      this.clickBuffer.rightClick = 0
+    } else if (this.clickBuffer.click > 0) {
+      for (var i = 0; i< this.clickBuffer.click; i++) {
+        var raymarchResult = this.blockManager.raymarchToBlock(this.camera.position, cameraDirection, 10)
+        if (raymarchResult) {
+          var [blockPos, hitPos] = raymarchResult
+          this.blockManager.removeBlock(blockPos)
+        }
+      }
+      this.clickBuffer.click = 0
+    }
+    // if (Date.now() % 1000 < 100) {
+      // var location = this.blockManager.raymarchToBlock(this.camera.position, cameraDirection, 10)
+      // if (location) {
+      //   this.blockManager.addBlock(...location, 4)
+      // }
+    // }
+
+  }
+}
+
+// ALTERNATIVE COMPONENTS (NOT USED):
 
 class VoxelsThreeJS extends React.Component {
   constructor(props) {
@@ -456,188 +826,6 @@ class BlockScene  {
 
 }
 
-class FlyControls {
 
-  constructor(camera, domElement, blocks) {
-    this.camera = camera
-    this.domElement = domElement
-    this.blocks = blocks
-
-
-    window.addEventListener("keydown", e => {
-      this.updateKeystates(e.key, true)
-      e.key == "e" && this.toggleMouseCapture()
-    })
-    window.addEventListener("keyup", e => {
-      this.updateKeystates(e.key, false)
-    })
-    domElement.addEventListener("mousedown", e => {
-      this.domElement.requestPointerLock()
-    })
-    document.addEventListener('pointerlockchange', () => {
-      if (!(document.pointerLockElement == this.domElement)) {
-        this.capturingMouseMovement = false
-      } else {
-        this.capturingMouseMovement = true
-      }
-    });
-    domElement.addEventListener("mouseup", e => {
-    })
-    domElement.addEventListener("mousemove", e => this.capturingMouseMovement && this.updateMouseBuffer(e.movementX, e.movementY))
-
-
-    this.keyState = {}
-    this.mouseMoveBuffer = {x: 0, y: 0}
-    this.captureMouseMovement = false
-
-    // Configuration
-    this.toggleMouseCaptureKey = "e"
-    this.maxVelocity = 0.2 // in units/seconds
-    this.timeToReachMaxSpeed = 0.6 // in seconds
-    this.timeToReachZeroSpeed = 0.2 // in seconds
-    this.velocity = new THREE.Vector3(0, 0, 0)
-    this.rotationSensitivty = 0.003 // in radians per (pixel of mouse movement)
-
-  }
-
-  updateMouseBuffer(movementX, movementY) {
-    this.mouseMoveBuffer.x += movementX
-    this.mouseMoveBuffer.y += movementY
-  }
-
-  updateKeystates(key, isDown) {
-    key = key.toLowerCase() // possible to have keyUp for "a" and then keyDown for "A" if shift involved.
-    if (isDown) {
-      this.keyState[key] = true
-    } else {
-      delete this.keyState[key]
-    }
-  }
-
-  toggleMouseCapture() {
-    this.capturingMouseMovement = !this.capturingMouseMovement
-    this.capturingMouseMovement ? this.domElement.requestPointerLock() : document.exitPointerLock()
-  }
-
-  argmax(vector3) {
-    if (vector3.x > vector3.y) {
-      if (vector3.z > vector3.x) {
-        return 2
-      }
-      return 0
-    } else {
-      if (vector3.z > vector3.y) {
-        return 2
-      }
-      return 1
-    }
-  }
-
-  abs(vector3) {
-    var absVec = new THREE.Vector3(Math.abs(vector3.x), Math.abs(vector3.y), Math.abs(vector3.z))
-    return absVec
-  }
-
-  checkCollisionUpdateVel(newLocation, velocity) {
-    var playerBox = new THREE.Box3(new THREE.Vector3(newLocation.x - 0.5, newLocation.y - 1.5, newLocation.z - 0.5), new THREE.Vector3(newLocation.x +0.5, newLocation.y + 0.5, newLocation.z + 0.5))
-
-    // only works with this exact box shape (1x1x2), can prob generalize if need
-    // if want to make playerBox smaller, add a Box3.intersects check after if(isBlock) {...}
-    var xLocations = [Math.floor(playerBox.min.x), Math.floor(playerBox.max.x)]
-    var yLocations = [Math.floor(playerBox.min.y), Math.floor(playerBox.min.y+1), Math.floor(playerBox.max.y)]
-    var zLocations = [Math.floor(playerBox.min.z), Math.floor(playerBox.max.z)]
-
-    for (var i=0; i < xLocations.length; i++) {
-      for (var j=0; j < yLocations.length; j++) {
-        for (var k=0; k < zLocations.length; k++) {
-
-          var possibleBlock = new THREE.Vector3(xLocations[i], yLocations[j], zLocations[k])
-          var isWithinBounds = possibleBlock.clone().clamp(new THREE.Vector3(0,0,0), (new THREE.Vector3(...this.blocks.shape)).subScalar(1)).equals(possibleBlock)
-          if (isWithinBounds) {
-            var isBlock = this.blocks.get(xLocations[i], yLocations[j], zLocations[k], 3) != 0
-            if (isBlock) {
-              var bodyRef
-              if (j == 0) {
-                bodyRef = (new THREE.Vector3(0, -1, 0)).add(newLocation) // reference from bottom block of body
-              } else if (j == 1) {
-                bodyRef = (new THREE.Vector3(0, -0.5, 0)).add(newLocation) // reference from middle of body
-              } else if (j == 2) {
-                bodyRef = newLocation // reference from top of body
-              }
-              var normal = new THREE.Vector3(0, 0, 0)
-              var dist = possibleBlock.clone().addScalar(0.5).sub(bodyRef) // vector from bodyRef to block Center
-              var maxDim = this.argmax(this.abs(dist))
-              normal.setComponent(maxDim, -Math.sign(dist.getComponent(maxDim)))
-
-              if (Math.sign(velocity.getComponent(maxDim)) == -normal.getComponent(maxDim)) {
-                velocity.setComponent(maxDim, 0)
-              }
-            }
-          }
-        }
-      }
-    }
-
-    return false
-  }
-
-  externalTick(timeDelta) {
-    var cameraDirection = new THREE.Vector3()
-    this.camera.getWorldDirection(cameraDirection)
-    var forceVector = new THREE.Vector3(0, 0, 0)
-
-    if ("w" in this.keyState) {
-      forceVector.add(cameraDirection)
-    } if ("s" in this.keyState) {
-      forceVector.add(cameraDirection.clone().negate())
-    } if ("a" in this.keyState) {
-      forceVector.add((new THREE.Vector3(0, 1, 0)).cross(cameraDirection))
-    } if ("d" in this.keyState) {
-      forceVector.add((new THREE.Vector3(0, 1, 0)).cross(cameraDirection).negate())
-    } if (" " in this.keyState) {
-      forceVector.add(new THREE.Vector3(0, 1, 0))
-    } if ("shift" in this.keyState) {
-      forceVector.add(new THREE.Vector3(0, -1, 0))
-    }
-
-    const acceleration = this.maxVelocity * (timeDelta/this.timeToReachMaxSpeed)
-    const deceleration = this.maxVelocity * (timeDelta/this.timeToReachZeroSpeed)
-    forceVector.multiplyScalar(acceleration)
-    // don't apply decel force that will flip velocity sign
-    var decelerationForce = this.velocity.clone().normalize().negate().multiplyScalar(Math.min(deceleration, this.velocity.length()))
-
-    // Have constant deceleration force when no input.
-    var haveMoveInput = !forceVector.equals(new THREE.Vector3(0, 0, 0))
-    if (haveMoveInput) {
-      forceVector.sub(decelerationForce)
-    }
-    forceVector.add(decelerationForce)
-
-
-    var candidateVelocity = this.velocity.clone().add(forceVector)
-    candidateVelocity.clampLength(0, this.maxVelocity) // convenient
-    var candidatePosition = this.camera.position.clone().add(candidateVelocity)
-
-    this.checkCollisionUpdateVel(candidatePosition, candidateVelocity)
-    this.velocity = candidateVelocity
-    var newPosition = this.camera.position.clone().add(candidateVelocity)
-    this.camera.position.set(newPosition.x, newPosition.y, newPosition.z)
-
-    // Camera rotation
-    // Can move head more than 90 deg if move camera quickly
-    var cameraCrossVec = (new THREE.Vector3(0, 1, 0)).cross(cameraDirection).normalize()
-    var angleToStraightUpDown = cameraDirection.angleTo(new THREE.Vector3(0, 1, 0)) // straight up and down
-    const minAngle = 0.27
-    var tiltDir = Math.sign(this.mouseMoveBuffer.y)
-    if ((angleToStraightUpDown < minAngle && tiltDir == 1) || (angleToStraightUpDown > (Math.PI - minAngle) && tiltDir == -1) || (angleToStraightUpDown > minAngle && angleToStraightUpDown < (Math.PI - minAngle))) {
-      this.camera.rotateOnWorldAxis(cameraCrossVec, this.rotationSensitivty * this.mouseMoveBuffer.y)
-    }
-    this.camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -this.rotationSensitivty * this.mouseMoveBuffer.x)
-
-    this.mouseMoveBuffer = {x: 0, y: 0}
-
-  }
-
-}
 
 module.exports = Voxels
