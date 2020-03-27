@@ -31,7 +31,7 @@ class Voxels extends React.Component {
     this.containerRef.current.appendChild(stats.dom)
 
     // Initialize blocks
-    const worldSize = [20, 20, 20] //# blocks makes no diff when staring off into void
+    const worldSize = [17, 17, 17] //# blocks makes no diff when staring off into void
     this.blockManager = new BlockManager(worldSize)
 
     this.camera = new THREE.PerspectiveCamera(95, 1.0, 0.1, 1000)
@@ -84,6 +84,9 @@ class Voxels extends React.Component {
         uniform mat4 invView;
         uniform float timeMS;
         uniform sampler2D colorStorage;
+        const float worldSize = ${worldSize[0].toFixed(1)};
+        const int maxRaymarchSteps = 50;
+        const float PI = 3.1415926535;
 
         // robobo1221
         vec3 getSky(vec2 uv){
@@ -114,6 +117,157 @@ class Voxels extends React.Component {
           return vec2(0,0);
         }
 
+        vec4 blockValueAtIndex(vec3 index) {
+          if (clamp(index, 0.0, float(worldSize) - 1.0) == index) {
+            vec2 blockIdxs = vec2(index.x,index.y*worldSize + index.z);
+            vec4 blockValue = texture2DLodEXT(blocks, blockIdxs/vec2(worldSize, worldSize*worldSize), 0.0);
+            return blockValue;
+          } else {
+             return vec4(0, 0, 0, 0);
+           }
+        }
+
+        // Slower
+        vec4 raymarchToBlockNoBranching(vec3 startPos, vec3 rayDir, out vec3 blockIdx, out vec3 hitPos) {
+          vec3 edge;
+          vec4 blockValue = vec4(0, 0, 0, 0);
+          vec3 outRayPos;
+
+          const float eps = 0.0001;
+          float t = 0.0;
+          for(int i=0; i<maxRaymarchSteps; i++) {
+            vec3 rayPos = startPos + rayDir * t;
+
+            bool inWorld = clamp(rayPos, 0.0, float(worldSize) - 0.0000000001) == rayPos;
+            vec3 possibleEdge = vec3(floor(rayPos.x), floor(rayPos.y), floor(rayPos.z));
+            vec4 possibleBlock = blockValueAtIndex(possibleEdge);
+            float shouldUpdateOutputs = float(inWorld && possibleBlock.a != 0.0 && blockValue.a == 0.0);
+
+            edge = shouldUpdateOutputs * possibleEdge + (1.0-shouldUpdateOutputs) * edge;
+            blockValue = shouldUpdateOutputs * possibleBlock + (1.0-shouldUpdateOutputs) * blockValue;
+            outRayPos = shouldUpdateOutputs * rayPos + (1.0-shouldUpdateOutputs) * outRayPos;
+
+            vec3 distanceToPlanes = step(vec3(0, 0, 0), rayDir)*(1.0 - fract(rayPos)) + (1.0 - step(vec3(0, 0, 0), rayDir))*(fract(rayPos));
+            vec3 tDeltasToPlanes = distanceToPlanes / abs(rayDir);
+            t += eps + min(tDeltasToPlanes.x, min(tDeltasToPlanes.y, tDeltasToPlanes.z));
+          }
+
+          hitPos = outRayPos;
+          blockIdx = edge;
+          return blockValue;
+        }
+
+        vec4 raymarchToBlock(vec3 startPos, vec3 rayDir, out vec3 blockIdx, out vec3 hitPos) {
+          // const float eps = 0.0001;
+          const float eps = 0.00001;
+          float t = 0.0;
+          for(int i=0; i<maxRaymarchSteps; i++) {
+            vec3 rayPos = startPos + rayDir * t;
+
+            vec3 edge = vec3(floor(rayPos.x), floor(rayPos.y), floor(rayPos.z));
+            vec4 blockValue = blockValueAtIndex(edge);
+
+            if (blockValue.a != 0.0) {
+              blockIdx = edge;
+              hitPos = rayPos;
+              return blockValue;
+            }
+
+            // round down if negative rayDir, round up if positive rayDir
+            // need to get distance in direction of ray so sign matters
+            vec3 distanceToPlanes = step(vec3(0, 0, 0), rayDir)*(1.0 - fract(rayPos)) + (1.0 - step(vec3(0, 0, 0), rayDir))*(fract(rayPos));
+            vec3 tDeltasToPlanes = distanceToPlanes / abs(rayDir);
+            t += eps + min(tDeltasToPlanes.x, min(tDeltasToPlanes.y, tDeltasToPlanes.z));
+          }
+
+          // default values
+          hitPos = vec3(0, 0, 0);
+          blockIdx = vec3(0, 0, 0);
+          return vec4(0, 0, 0, 0);
+        }
+
+        // math.stackexchange.com/questions/1014010/how-would-i-calculate-the-area-of-a-rectangle-on-a-sphere-using-vertical-and-hor
+        float sphereRectangleAreaFromAngles(float angle1, float angle2) {
+          float alpha = angle1/2.0;
+          float beta = angle2/2.0;
+          float Abar = atan(sin(beta) / tan(alpha));
+          float Bbar = atan(sin(alpha) / tan(beta));
+          float cosGamma = cos(alpha)*cos(beta);
+          float C = acos(sin(Abar)*sin(Bbar)*cosGamma - cos(Abar)*cos(Bbar));
+          float area = 4.0*C - 2.0*PI;
+          return area;
+        }
+
+        // from inigo quiliez
+        float opSmoothUnion( float d1, float d2, float k ) {
+          float h = clamp( 0.5 + 0.5*(d2-d1)/k, 0.0, 1.0 );
+          return mix( d2, d1, h ) - k*h*(1.0-h); }
+
+        // super heuristic-y (mainly edge dist). returns an alpha, so more AO => lower ret val.
+        float ambientOcclusion(vec3 blockIdx, vec3 hitPos, vec3 hitNorm) {
+
+          vec3 sideDirs[4];
+          vec3 cornerDirs[4];
+
+          if (abs(hitNorm) == vec3(0, 1, 0)) {
+            sideDirs[0] = vec3(1, 0, 0);
+            sideDirs[1] = vec3(0, 0, 1);
+            sideDirs[2] = vec3(-1, 0, 0);
+            sideDirs[3] = vec3(0, 0, -1);
+            cornerDirs[0] = vec3(1, 0, 1);
+            cornerDirs[1] = vec3(-1, 0, 1);
+            cornerDirs[2] = vec3(-1, 0, -1);
+            cornerDirs[3] = vec3(1, 0, -1);
+          } else if (abs(hitNorm) == vec3(1, 0, 0)) {
+            sideDirs[0] = vec3(0, 1, 0);
+            sideDirs[1] = vec3(0, 0, 1);
+            sideDirs[2] = vec3(0, -1, 0);
+            sideDirs[3] = vec3(0, 0, -1);
+            cornerDirs[0] = vec3(0, 1, 1);
+            cornerDirs[1] = vec3(0, -1, 1);
+            cornerDirs[2] = vec3(0, -1, -1);
+            cornerDirs[3] = vec3(0, 1, -1);
+          } else if (abs(hitNorm) == vec3(0, 0, 1)) {
+            sideDirs[0] = vec3(0, 1, 0);
+            sideDirs[1] = vec3(1, 0, 0);
+            sideDirs[2] = vec3(0, -1, 0);
+            sideDirs[3] = vec3(-1, 0, 0);
+            cornerDirs[0] = vec3(1, 1, 0);
+            cornerDirs[1] = vec3(1, -1, 0);
+            cornerDirs[2] = vec3(-1, -1, 0);
+            cornerDirs[3] = vec3(-1, 1, 0);
+          }
+
+          float ambientOcclusionAlpha = 1.0;
+          float avgDist = 1.0;
+
+          for (int i=0; i<4; i++) {
+            vec3 adjacentBlockPos = blockIdx + hitNorm + sideDirs[i];
+            vec4 adjacentBlockVal = blockValueAtIndex(adjacentBlockPos);
+            if (adjacentBlockVal.a != 0.0) {
+              float dist = length(abs(sideDirs[i]) * abs(adjacentBlockPos + vec3(0.5, 0.5, 0.5) - hitPos)) - 0.5;
+              avgDist = opSmoothUnion(avgDist, dist, 0.2);
+            }
+          }
+
+          for (int i=0; i<4; i++) {
+            vec3 adjacentBlockPos = blockIdx + hitNorm + cornerDirs[i];
+            vec4 adjacentBlockVal = blockValueAtIndex(adjacentBlockPos);
+            if (adjacentBlockVal.a != 0.0) {
+              vec3 cornerPos = adjacentBlockPos + vec3(0.5, 0.5, 0.5) - cornerDirs[i] * 0.5;
+              float dist = length(abs(cornerDirs[i]) * abs(cornerPos - hitPos));
+              avgDist = min(avgDist, dist);
+            }
+          }
+
+          // gl_FragColor = vec4(1, 0, 0, 1) * avgDist;
+          // return;
+          const float shadowClosenessToSide = 7.0;
+          const float shadowLightness = 3.0;
+          ambientOcclusionAlpha = 1.0 - pow(1.0 - avgDist, shadowClosenessToSide)/shadowLightness;
+          return ambientOcclusionAlpha;
+        }
+
         void main() {
           // Add center cursor
           if (length(gl_FragCoord.xy - (viewportSize.xy / 2.0)) < 2.0) {
@@ -129,64 +283,49 @@ class Voxels extends React.Component {
           vec3 rayDir = normalize(worldCoords - cameraPos);
           const vec3 lightDir = normalize(vec3(1, -1, 1));
 
-          const float eps = 0.0001;
-          const float worldSize = ${worldSize[0].toFixed(1)};
-          const float maxDist = 30.0;
-          float t = 0.0;
-          // while loops not allowed in Webgl 1 :/
-          for(int i=0; i<50; i++) {
+          vec3 hitPos;
+          vec3 blockIdx;
+          // vec4 blockValue = raymarchToBlockBranching(cameraPos, rayDir, blockIdx, hitPos);
+          vec4 blockValue = raymarchToBlock(cameraPos, rayDir, blockIdx, hitPos);
 
-            vec3 rayPos = cameraPos + rayDir * t;
-
-            if (clamp(rayPos, 0.0, float(worldSize) - 0.0000000001) == rayPos) {
-              vec3 edge = vec3(floor(rayPos.x), floor(rayPos.y), floor(rayPos.z));
-              vec2 blockIdxs = vec2(edge.x,edge.y*worldSize + edge.z);
-              vec4 blockValue = texture2DLodEXT(blocks, blockIdxs/vec2(worldSize, worldSize*worldSize), 0.0);
-
-              if (blockValue.a != 0.0) {
-                vec3 hitDists = rayPos - (edge + 0.5);
-                vec3 hitNorm = vec3(ivec3(hitDists / maxOf(abs(hitDists))));
-
-                vec3 lightReflectionRay = lightDir - 2.0*dot(lightDir, hitNorm)*hitNorm;
-                float reflectRayCosSim = dot(-rayDir, lightReflectionRay);
-                float rayNormCosSim = dot(-rayDir, hitNorm);
-
-                vec2 textureCoords = twoNonZero((1.0 - hitNorm) * (hitDists + 0.5));
-
-                vec3 isSideHit = floor(abs(hitDists) / 0.495);
-                bool isEdge = isSideHit.x + isSideHit.y + isSideHit.z >= 2.0;
-                bool shouldDrawEdge = blockValue.x == 1.0/255.0;
-
-                if (false && length(hitDists) > 0.8) {
-                  gl_FragColor = vec4(0, 0, 0, 1); // corner marks
-                } else if (isEdge && shouldDrawEdge) {
-                  // gl_FragColor = vec4(0.95, 0.95, 0.95, 1); // edge marks
-                  gl_FragColor = vec4(0, 0, 0, 1); // edge marks
-                } else {
-                  if (dot(hitNorm, -lightDir) < 0.0) {
-                    reflectRayCosSim = 0.0;
-                  }
-                  float blockIdx = floor(blockValue.a * 255.0) - 1.0;
-                  vec3 blockColor = texture2DLodEXT(colorStorage, vec2(blockIdx/16.0, 0.0), 0.0).rgb;
-                  vec3 colorMix  = (0.0*reflectRayCosSim + 0.6*rayNormCosSim + 0.66) * blockColor;
-                  gl_FragColor = vec4(colorMix, 1);
-                  // gl_FragColor = vec4(textureCoords, 0.0, 1.0);
-                  // gl_FragColor = texture2D(imageTexture, textureCoords);
-                }
-                return;
-              }
-            }
-
-            // round down if negative rayDir
-            // round up if positive rayDir
-            // need to get distance in direction of ray so sign matters
-            vec3 distanceToPlanes = step(vec3(0, 0, 0), rayDir)*(1.0 - fract(rayPos)) + (1.0 - step(vec3(0, 0, 0), rayDir))*(fract(rayPos));
-            vec3 tDeltasToPlanes = distanceToPlanes / abs(rayDir);
-            t += eps + min(tDeltasToPlanes.x, min(tDeltasToPlanes.y, tDeltasToPlanes.z));
-
+          // no block hit
+          if (blockValue.a == 0.0) {
+            gl_FragColor = vec4(getSky(rayDir.xy), 1);
+            return;
           }
-          gl_FragColor = vec4(getSky(rayDir.xy), 1);
 
+          vec3 hitDists = hitPos - (blockIdx + 0.5);
+          vec3 hitNorm = vec3(ivec3(hitDists / maxOf(abs(hitDists))));
+
+          float ambientOcclusionAlpha = ambientOcclusion(blockIdx, hitPos, hitNorm);
+
+          vec3 lightReflectionRay = lightDir - 2.0*dot(lightDir, hitNorm)*hitNorm;
+          float reflectRayCosSim = dot(-rayDir, lightReflectionRay);
+          float rayNormCosSim = dot(-rayDir, hitNorm);
+
+          vec2 textureCoords = twoNonZero((1.0 - hitNorm) * (hitDists + 0.5));
+
+          vec3 isSideHit = floor(abs(hitDists) / 0.495);
+          bool isEdge = isSideHit.x + isSideHit.y + isSideHit.z >= 2.0;
+          bool shouldDrawEdge = blockValue.x == 1.0/255.0;
+
+          if (false && length(hitDists) > 0.8) {
+            gl_FragColor = vec4(0, 0, 0, 1); // corner marks
+          } else if (isEdge && shouldDrawEdge) {
+            // gl_FragColor = vec4(0.95, 0.95, 0.95, 1); // edge marks
+            gl_FragColor = vec4(0, 0, 0, 1); // edge marks
+          } else {
+            if (dot(hitNorm, -lightDir) < 0.0) {
+              reflectRayCosSim = 0.0;
+            }
+            float blockIdx = floor(blockValue.a * 255.0) - 1.0;
+            vec3 blockColor = texture2DLodEXT(colorStorage, vec2(blockIdx/16.0, 0.0), 0.0).rgb;
+            vec3 colorMix  = (0.0*reflectRayCosSim + 0.6*rayNormCosSim + 0.66) * blockColor * ambientOcclusionAlpha;
+            // vec3 colorMix  = blockColor * ambientOcclusionAlpha;
+            gl_FragColor = vec4(colorMix, 1);
+            // gl_FragColor = vec4(textureCoords, 0.0, 1.0);
+            // gl_FragColor = texture2D(imageTexture, textureCoords);
+          }
         }
 
 
