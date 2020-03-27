@@ -37,7 +37,8 @@ class Voxels extends React.Component {
     this.camera = new THREE.PerspectiveCamera(95, 1.0, 0.1, 1000)
     this.controls = new FlyControls(this.camera, this.canvasRef.current, this.blockManager, this.gameState)
     this.resizeCanvasAndCamera()
-    window.addEventListener("resize", () => this.resizeCanvasAndCamera())
+    this.listeners = []
+    this.addEventListener(window, "resize", () => this.resizeCanvasAndCamera())
     this.regl = Regl({
       canvas: this.canvasRef.current,
       extensions: ["OES_texture_float", 'EXT_shader_texture_lod', "OES_standard_derivatives"],
@@ -395,7 +396,16 @@ class Voxels extends React.Component {
       })
       stats.end()
     })
+  }
 
+  addEventListener(obj, eventName, func) {
+    this.listeners.push([obj, eventName, func])
+    obj.addEventListener(eventName, func)
+  }
+
+  componentWillUnmount() {
+    this.listeners.map(([obj, eventName, func]) => obj.removeEventListener(eventName, func))
+    this.regl.destroy()
   }
 
   hexToRGB(h) {
@@ -466,8 +476,8 @@ class GameControlPanel extends React.Component {
     this.state = {
       selectedBlockColor: this.gameState.selectedBlockColor
     }
-    window.addEventListener("keydown", e => {
-      console.log("keydown")
+    this.listeners = []
+    this.addEventListener(window, "keydown", e => {
       var key = e.key
       var gridWidth = 4
       var gridHeight = 4
@@ -486,6 +496,15 @@ class GameControlPanel extends React.Component {
         this.setSelectedBlockColor((row * gridWidth + col) + 1)
       }
     })
+  }
+
+  addEventListener(obj, eventName, func) {
+    this.listeners.push([obj, eventName, func])
+    obj.addEventListener(eventName, func)
+  }
+
+  componentWillUnmount() {
+    this.listeners.map(([obj, eventName, func]) => obj.removeEventListener(eventName, func))
   }
 
   setSelectedBlockColor(selectedBlockColor) {
@@ -599,15 +618,15 @@ class FlyControls {
     this.blockManager = blockManager
     this.gameState = gameState
 
-
-    window.addEventListener("keydown", e => {
+    this.listeners = []
+    this.addEventListener(window, "keydown", e => {
       this.updateKeystates(e.key, true)
       e.key == "e" && this.toggleMouseCapture()
     })
-    window.addEventListener("keyup", e => {
+    this.addEventListener(window, "keyup", e => {
       this.updateKeystates(e.key, false)
     })
-    domElement.addEventListener("mousedown", e => {
+    this.addEventListener(domElement, "mousedown", e => {
       if (e.which == 1) { // left click
         if (!this.capturingMouseMovement) {
           this.domElement.requestPointerLock()
@@ -618,16 +637,17 @@ class FlyControls {
           this.clickBuffer.rightClick += 1
       }
     })
-    document.addEventListener('pointerlockchange', () => {
+    this.addEventListener(document, 'pointerlockchange', () => {
       if (!(document.pointerLockElement == this.domElement)) {
         this.capturingMouseMovement = false
+        this.keyState = {} // prevent sticky keys
       } else {
         this.capturingMouseMovement = true
       }
     });
-    domElement.addEventListener("mouseup", e => {
+    this.addEventListener(domElement,"mouseup", e => {
     })
-    domElement.addEventListener("mousemove", e => this.capturingMouseMovement && this.updateMouseBuffer(e.movementX, e.movementY))
+    this.addEventListener(domElement, "mousemove", e => this.capturingMouseMovement && this.updateMouseBuffer(e.movementX, e.movementY))
 
     this.keyState = {}
     this.mouseMoveBuffer = {x: 0, y: 0}
@@ -645,6 +665,15 @@ class FlyControls {
     // Special callback used for e.g. removing block selection
     this.onNextTick = null
 
+  }
+
+  addEventListener(obj, eventName, func) {
+    this.listeners.push([obj, eventName, func])
+    obj.addEventListener(eventName, func)
+  }
+
+  componentWillUnmount() {
+    this.listeners.map(([obj, eventName, func]) => obj.removeEventListener(eventName, func))
   }
 
   updateMouseBuffer(movementX, movementY) {
@@ -693,8 +722,21 @@ class FlyControls {
     return [normal, maxDim]
   }
 
-  checkCollisionUpdateVel(newLocation, velocity) {
-    var playerBox = new THREE.Box3(new THREE.Vector3(newLocation.x - 0.3, newLocation.y - 1.3, newLocation.z - 0.3), new THREE.Vector3(newLocation.x +0.3, newLocation.y + 0.3, newLocation.z + 0.3))
+  playerBox(location) {
+    var playerBox = new THREE.Box3(new THREE.Vector3(location.x - 0.3, location.y - 1.3, location.z - 0.3), new THREE.Vector3(location.x +0.3, location.y + 0.3, location.z + 0.3))
+    return playerBox
+  }
+
+  playerCollidesWithCube(potentialCubeIdx, location) {
+    var playerBox = this.playerBox(location)
+    var blockBox = new THREE.Box3(potentialCubeIdx.clone(), potentialCubeIdx.clone().addScalar(1))
+    var isCollision = playerBox.intersectsBox(blockBox)
+    return isCollision
+  }
+
+  //only checks 12 boxes around the player, returns collision force dir
+  playerCollisions(newLocation) {
+    var playerBox = this.playerBox(newLocation)
 
     // only works with this exact box shape (1x1x2), can prob generalize if need
     // if want to make playerBox smaller, add a Box3.intersects check after if(isBlock) {...}
@@ -703,6 +745,8 @@ class FlyControls {
     var xLocations = [Math.floor(playerBox.min.x), Math.floor(playerBox.max.x)]
     var yLocations = [Math.floor(playerBox.min.y), Math.floor(playerBox.min.y+1), Math.floor(playerBox.max.y)]
     var zLocations = [Math.floor(playerBox.min.z), Math.floor(playerBox.max.z)]
+
+    var forceDir = new THREE.Vector3(0, 0, 0);
 
     for (var i=0; i < xLocations.length; i++) {
       for (var j=0; j < yLocations.length; j++) {
@@ -727,17 +771,23 @@ class FlyControls {
                 }
                 var [normal, maxDim] = this.blockNormalAtLocation(possibleBlock, bodyRef)
 
-                if (Math.sign(velocity.getComponent(maxDim)) == -normal.getComponent(maxDim)) {
-                  velocity.setComponent(maxDim, 0)
-                }
+                forceDir.setComponent(maxDim, normal.getComponent(maxDim))
               }
             }
           }
         }
       }
     }
+    return forceDir
+  }
 
-    return false
+  checkCollisionUpdateVel(newLocation, velocity) {
+    var forceDir = this.playerCollisions(newLocation)
+    for (var i =0; i<3; i++) {
+      if (Math.sign(velocity.getComponent(i)) == -forceDir.getComponent(i)) {
+        velocity.setComponent(i, 0)
+      }
+    }
   }
 
   externalTick(timeDelta) {
@@ -813,8 +863,9 @@ class FlyControls {
         var [normal, dim] = this.blockNormalAtLocation(blockPos, hitPos)
         var newBlockPos = normal.add(blockPos)
         for (var i = 0; i< this.clickBuffer.rightClick; i++) {
-          this.blockManager.addBlock(newBlockPos, this.gameState.selectedBlockColor)
-          // todo: don't add if collision
+          if (!this.playerCollidesWithCube(newBlockPos, this.camera.position)) {
+            this.blockManager.addBlock(newBlockPos, this.gameState.selectedBlockColor)
+          }
         }
       }
       this.clickBuffer.rightClick = 0
@@ -828,13 +879,6 @@ class FlyControls {
       }
       this.clickBuffer.click = 0
     }
-    // if (Date.now() % 1000 < 100) {
-      // var location = this.blockManager.raymarchToBlock(this.camera.position, cameraDirection, 10)
-      // if (location) {
-      //   this.blockManager.addBlock(...location, 4)
-      // }
-    // }
-
   }
 }
 
