@@ -3,7 +3,8 @@ var React = require("react")
 var ReactDOM = require("react-dom")
 import { Router, Link as RouterLink, navigate } from "@reach/router"
 
-import Voxels from "./voxels.jsx"
+import {VoxelEditor, VoxelRenderer, FlyControls, BlockManager, GameState} from "./voxels.jsx"
+import * as THREE from 'three';
 
 const CopyToClipboard = require('clipboard-copy')
 import {Client as Styletron} from 'styletron-engine-atomic';
@@ -145,7 +146,7 @@ class App extends React.Component {
               <LandingPage path="/"/>
               <Listings path="/home"/>
               <Listing path="/item/:id"/>
-              <Voxels path="/newItem"/>
+              <VoxelEditor path="/newItem"/>
             </Router>
           </div>
         </div>
@@ -161,21 +162,26 @@ class Listings extends React.Component {
 
   constructor(props) {
     super(props)
+
+    const worldSize = [2,2,2] //should be stored in blockmanager or gamestate and passed as prop to shader
+    this.voxelRenderer = new VoxelRenderer({worldSize, topBorderRadius: 14})
+    document.body.appendChild(this.voxelRenderer.stats.dom)
+
   }
 
   render() {
-    var cards = [...Array(100).keys()].map(idx => {
+    var cards = [...Array(20).keys()].map(idx => {
       return (
         <div style={{marginRight: this.sideMargins, marginBottom: this.topBottomMargins}} key={idx} >
-          <ListingCard id={idx} />
+          <ListingCard id={idx} voxelRenderer={this.voxelRenderer} />
         </div>
       )
     })
 
-    var hiddenSpacers = [...Array(10).keys()].map(idx => {
+    var hiddenSpacers = [...Array(0).keys()].map(idx => {
       return (
         <div style={{marginRight: this.sideMargins, maxHeight:"0", visibility: "hidden", overflow: "hidden"}} key={idx+"sp"} >
-          <ListingCard id={idx}/>
+          <ListingCard id={idx} voxelRenderer={this.voxelRenderer} />
         </div>
       )
     })
@@ -195,6 +201,7 @@ class Listings extends React.Component {
 
 class ListingCard extends React.Component {
 
+  // imageSize = 200
   imageSize = 200
 
   constructor(props) {
@@ -205,22 +212,46 @@ class ListingCard extends React.Component {
   }
 
   componentDidMount() {
-    const pixels = datastore.generateRandomBlurredImageData(this.props.id, this.imageSize, this.imageSize)
-    const canvas = this.state.canvasRef.current
-    const ctx = canvas.getContext("2d");
-    const { width, height } = canvas.getBoundingClientRect()
-    const imageData = ctx.createImageData(width, height);
-    imageData.data.set(pixels);
-    ctx.putImageData(imageData, 0, 0);
+    console.log("card mounted")
+    const worldSize = [2,2,2] //# blocks makes no diff when staring off into void
+    this.gameState = new GameState()
+    this.blockManager = new BlockManager(worldSize)
+
+    this.camera = new THREE.PerspectiveCamera(95, 1.0, 0.1, 1000)
+    this.camera.position.set(worldSize[0]/2.0, 10, 0)
+    this.camera.lookAt(new THREE.Vector3(worldSize[0]/2.0, 0, worldSize[2]/2.0))
+    this.controls = new FlyControls(this.camera, this.state.canvasRef.current, this.blockManager, this.gameState)
+    this.camera.position.set(worldSize[0]/2.0, 10, 0)
+    this.camera.lookAt(new THREE.Vector3(worldSize[0]/2.0, 0, worldSize[2]/2.0))
+    this.renderID = this.props.voxelRenderer.addTarget({blockManager: this.blockManager, gameState: this.gameState, camera: this.camera, element: this.state.canvasRef.current})
+    // var tick = timestamp => {
+    //   this.controls.externalTick(1/60)
+    //   window.requestAnimationFrame(tick)
+    // }
+    // window.requestAnimationFrame(tick)
+
+    // random blurred image data
+    // const pixels = datastore.generateRandomBlurredImageData(this.props.id, this.imageSize, this.imageSize)
+    // const canvas = this.state.canvasRef.current
+    // const ctx = canvas.getContext("2d");
+    // const { width, height } = canvas.getBoundingClientRect()
+    // const imageData = ctx.createImageData(width, height);
+    // imageData.data.set(pixels);
+    // ctx.putImageData(imageData, 0, 0);
+  }
+
+  componentWillUnmount() {
+    this.props.voxelRenderer.removeTarget(this.renderID)
   }
 
   render() {
-    var onClick = e => {e.preventDefault(); navigate(`item/${this.props.id}`)}
+    // var onClick = e => {e.preventDefault(); navigate(`item/${this.props.id}`)}
+    var onClick = e => null;
     const { price, name } = datastore.getListingDataById(this.props.id)
 
     return (
       <div onClick={onClick} style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", cursor: "pointer"}}>
-        <div style={{height: this.imageSize+"px", width: this.imageSize+"px", backgroundColor: "#ccc", position: "relative"}}>
+        <div style={{height: this.imageSize+"px", width: this.imageSize+"px", position: "relative"}}>
           <div style={{position: "absolute", right: "10px", top: "10px"}}>
             <UserAvatar id={this.props.id} size={35} />
           </div>
@@ -330,7 +361,7 @@ class Header extends React.Component {
     }
 
     return (
-      <HeaderNavigation>
+      <HeaderNavigation style={{backgroundColor: "white"}}>
         <StyledNavigationList $align={ALIGN.left}>
           <StyledNavigationItem>
             <DisplayMedium onClick={() => navigate("/")}
