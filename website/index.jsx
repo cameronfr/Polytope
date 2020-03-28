@@ -163,9 +163,8 @@ class Listings extends React.Component {
   constructor(props) {
     super(props)
 
-    const worldSize = [2,2,2] //should be stored in blockmanager or gamestate and passed as prop to shader
-    this.voxelRenderer = new VoxelRenderer({worldSize, topBorderRadius: 14})
-    document.body.appendChild(this.voxelRenderer.stats.dom)
+    const worldSize = [17,17,17] //should be stored in blockmanager or gamestate and passed as prop to shader
+    this.voxelRenderer = new VoxelRenderer({worldSize, pixelRatio:window.devicePixelRatio})
 
   }
 
@@ -212,8 +211,7 @@ class ListingCard extends React.Component {
   }
 
   componentDidMount() {
-    console.log("card mounted")
-    const worldSize = [2,2,2] //# blocks makes no diff when staring off into void
+    const worldSize = [17,17,17] //# blocks makes no diff when staring off into void
     this.gameState = new GameState()
     this.blockManager = new BlockManager(worldSize)
 
@@ -226,6 +224,7 @@ class ListingCard extends React.Component {
     this.renderID = this.props.voxelRenderer.addTarget({blockManager: this.blockManager, gameState: this.gameState, camera: this.camera, element: this.state.canvasRef.current})
     // var tick = timestamp => {
     //   this.controls.externalTick(1/60)
+    //   this.props.voxelRenderer.renderQueue.unshift(this.renderID)
     //   window.requestAnimationFrame(tick)
     // }
     // window.requestAnimationFrame(tick)
@@ -255,7 +254,7 @@ class ListingCard extends React.Component {
           <div style={{position: "absolute", right: "10px", top: "10px"}}>
             <UserAvatar id={this.props.id} size={35} />
           </div>
-          <canvas ref={this.state.canvasRef} width={this.imageSize} height={this.imageSize}></canvas>
+          <canvas ref={this.state.canvasRef} style={{width: "100%", height: "100%"}} width={this.imageSize} height={this.imageSize}></canvas>
         </div>
         <div style={{display: "flex", flexDirection: "column", justifyContent: "center", padding: "10px", width: this.imageSize+"px", boxSizing: "border-box"}}>
           <LabelLarge style={{textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden"}}>

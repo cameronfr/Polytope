@@ -20,16 +20,13 @@ class VoxelRenderer {
     const worldSize = options.worldSize
     if (!options.canvas) {
       this.canvas = document.createElement('canvas')
-      this.canvas.style.cssText ="position: absolute; top:0; left:0; height: 100%; width: 100%"
+      this.canvas.style.cssText ="position: absolute; top:0; left:0; height: 10; width:10px;" //chrome behavior: copying via ctx.drawimage won't work correctly unless canvas has size
       this.canvas.style.zIndex ="-1"
       document.body.appendChild(this.canvas);
     } else {
       this.canvas = options.canvas
     }
-
-    // parents can access stats.dom to show
-    this.stats = new Stats();
-    this.stats.showPanel(0);
+    this.pixelRatio = options.pixelRatio || 1
 
     // target scenes to be rendered, see addTarget()
     this.idCounter = 0
@@ -398,32 +395,30 @@ class VoxelRenderer {
       count: 6,
     })
 
-    // regl.frame() wraps requestAnimationFrame and also handles viewport changes
-    // maybe can remove the "resize" listener
-    var frameCount = 0
-    this.regl.frame(({time}) => {
-      frameCount += 1
-      this.stats.begin()
-      this.regl.clear({
-        color: [0, 0, 0, 0],
-        depth: 1
-      })
-      this.render()
-      //console.log(this.camera.matrixWorld.elements)
-      this.stats.end()
-    })
-
-    this.temp = {}
+    this.stopped = false
+    this.renderQueue = []
+    var renderLoop = time => {
+      if (this.renderQueue.length > 0) {
+        this.render(this.renderQueue.pop())
+      }
+      // if render and try and copy more than once per frame, won't work
+      !this.stopped && window.requestAnimationFrame(renderLoop)
+    }
+    window.requestAnimationFrame(renderLoop)
   }
 
   // should probably just take a gameState, element in the future
   // camera is THREE.js camera, element is standard DOMelement
   // see render() for what a target is
   addTarget(target) {
-   this.idCounter +=1
-   this.targets[this.idCounter] = target
-   this.render()
-   return this.idCounter
+    if (!(target.element instanceof HTMLCanvasElement)) {
+      throw "Element is not a canvas"
+    }
+    const targetID = this.idCounter
+    this.idCounter +=1
+    this.targets[targetID] = target
+    this.renderQueue.unshift(targetID)
+    return targetID
   }
 
   removeTarget(targetID) {
@@ -437,6 +432,7 @@ class VoxelRenderer {
 
   destroy() {
     this.listeners.map(([obj, eventName, func]) => obj.removeEventListener(eventName, func))
+    this.stopped = true
     this.regl.destroy()
     this.canvas.remove()
   }
@@ -445,43 +441,25 @@ class VoxelRenderer {
     return [+("0x"+h[1]+h[2]), +("0x"+h[3]+h[4]), +("0x"+h[5]+h[6])]
   }
 
+  render(targetID) {
+    const {blockManager, gameState, camera, element} = this.targets[targetID]
+    const sizeOfTargetCanvas = element.getBoundingClientRect();
+    const targetedWidth = sizeOfTargetCanvas.width * this.pixelRatio
+    const targetedHeight = sizeOfTargetCanvas.height * this.pixelRatio
+    element.width = targetedWidth
+    element.height = targetedHeight
+    this.canvas.width = targetedWidth
+    this.canvas.height = targetedHeight
+    this.regl.poll() //update viewport dims to canvas dims
 
-  render() {
-    const canvasRect = this.canvas.getBoundingClientRect();
-    // window.devicePixelRatio i.e. retina (4x pixels) is crisp and beautiful but too laggy
-    const pixelRatio = 1//0.05;
-    this.canvas.width = canvasRect.width * pixelRatio
-    this.canvas.height = canvasRect.height * pixelRatio
-
-    // this.canvas.style.top= `${window.scrollY}px)`; // only changes position if element absolute
-    this.canvas.style.transform = `translateY(${window.scrollY}px)`;
-
-    for (var key in this.targets) {
-      const {blockManager, gameState, camera, element} = this.targets[key]
-      const targetRect = element.getBoundingClientRect();
-      if (targetRect.bottom < canvasRect.top || targetRect.top  > canvasRect.bottom ||
-          targetRect.right  < canvasRect.left || targetRect.left > canvasRect.right) {
-        continue;// target is fully clipped
-      }
-
-      // partial-clipping might still be rendered and then discarded
-      const width  = targetRect.right - targetRect.left
-      const height = targetRect.bottom - targetRect.top
-      const left   = targetRect.left - canvasRect.left
-      const bottom = canvasRect.bottom - targetRect.bottom
-      const clipBox = {x: left * pixelRatio, y: bottom * pixelRatio, width: width * pixelRatio, height: height * pixelRatio}
-      const fragCoordOffset = [clipBox.x, clipBox.y] // gl_FragCoord doesn't change with viewport or scissor
-
-      var clippedDraw = this.regl({
-        scissor: {
-          enable: false,
-          box: clipBox,
-        },
-        viewport: clipBox,
-      })
-      clippedDraw(context => {
-        this.drawCommand({blockManager, gameState, camera, fragCoordOffset})
-      })
+    this.regl.clear({
+      color: [0, 0, 0, 0],
+      depth: 1
+    })
+    this.drawCommand({blockManager, gameState, camera, fragCoordOffset: [0,0]})
+    if (this.canvas != element) {
+      const targetContext = element.getContext("2d")
+      targetContext.drawImage(this.canvas, 0, 0)
     }
   }
 
@@ -511,13 +489,20 @@ class VoxelEditor extends React.Component {
     this.listeners = []
     this.addEventListener(window, "resize", () => this.resizeCamera())
 
+    // parents can access stats.dom to show
+    this.stats = new Stats();
+    this.stats.showPanel(0);
+    this.containerRef.current.appendChild(this.stats.dom)
+
     this.voxelRenderer = new VoxelRenderer({canvas: this.canvasRef.current, worldSize})
     // this.voxelRenderer = new VoxelRenderer({worldSize, topBorderRadius: 14})
-    this.voxelRenderer.addTarget({blockManager: this.blockManager, gameState: this.gameState, camera: this.camera, element: this.canvasRef.current})
-    this.containerRef.current.appendChild(this.voxelRenderer.stats.dom)
+    this.renderTargetID = this.voxelRenderer.addTarget({blockManager: this.blockManager, gameState: this.gameState, camera: this.camera, element: this.canvasRef.current})
 
     var tick = timestamp => {
+      this.stats.begin()
       this.controls.externalTick(1/60)
+      this.voxelRenderer.render(this.renderTargetID)
+      this.stats.end()
       window.requestAnimationFrame(tick)
     }
     window.requestAnimationFrame(tick)
