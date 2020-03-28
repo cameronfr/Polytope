@@ -205,9 +205,7 @@ class ListingCard extends React.Component {
 
   constructor(props) {
     super(props)
-    this.state = {
-      canvasRef: React.createRef()
-    }
+    this.canvasRef = React.createRef()
   }
 
   componentDidMount() {
@@ -215,19 +213,43 @@ class ListingCard extends React.Component {
     this.gameState = new GameState()
     this.blockManager = new BlockManager(worldSize)
 
+    const lookAtPos = new THREE.Vector3(worldSize[0]/2.0, 10, worldSize[2]/2.0)
+    const orbitCenter = lookAtPos.clone()
+    const orbitHeight = 8
+    const orbitPeriod = 10.0 //seconds
+    const orbitRadius = 1.2 * worldSize[0]/2.0
+
     this.camera = new THREE.PerspectiveCamera(95, 1.0, 0.1, 1000)
-    this.camera.position.set(worldSize[0]/2.0, 10, 0)
-    this.camera.lookAt(new THREE.Vector3(worldSize[0]/2.0, 0, worldSize[2]/2.0))
-    this.controls = new FlyControls(this.camera, this.state.canvasRef.current, this.blockManager, this.gameState)
-    this.camera.position.set(worldSize[0]/2.0, 10, 0)
-    this.camera.lookAt(new THREE.Vector3(worldSize[0]/2.0, 0, worldSize[2]/2.0))
-    this.renderID = this.props.voxelRenderer.addTarget({blockManager: this.blockManager, gameState: this.gameState, camera: this.camera, element: this.state.canvasRef.current})
-    // var tick = timestamp => {
-    //   this.controls.externalTick(1/60)
-    //   this.props.voxelRenderer.renderQueue.unshift(this.renderID)
-    //   window.requestAnimationFrame(tick)
-    // }
-    // window.requestAnimationFrame(tick)
+    const startPos = orbitCenter.clone().add(new THREE.Vector3(orbitRadius, orbitHeight, 0))
+    this.camera.position.set(startPos.x, startPos.y, startPos.z)
+    // not sure why have to update world matrix -- maybe three.js renderer usually does automatically
+    this.camera.lookAt(lookAtPos)
+    this.camera.updateWorldMatrix()
+    this.controls = new FlyControls(this.camera, this.canvasRef.current, this.blockManager, this.gameState)
+    this.renderID = this.props.voxelRenderer.addTarget({blockManager: this.blockManager, gameState: this.gameState, camera: this.camera, element: this.canvasRef.current})
+
+
+    var animationFrameRequestID
+    var rotationTime = 0
+    this.canvasRef.current.addEventListener("mouseover", e => {
+      var lastTimestamp = window.performance.now()
+      const period = 10.0 // seconds
+      var tick = timestamp => {
+        var elapsed = 2 * (Math.PI/period) * (timestamp - lastTimestamp) / 1000
+        lastTimestamp = timestamp
+        rotationTime += elapsed
+        var newPos = (new THREE.Vector3(Math.cos(rotationTime)*orbitRadius, orbitHeight, Math.sin(rotationTime)*orbitRadius)).add(orbitCenter)
+        this.camera.position.set(newPos.x, newPos.y, newPos.z)
+        this.camera.lookAt(lookAtPos)
+        this.props.voxelRenderer.renderQueue.unshift(this.renderID)
+        animationFrameRequestID = window.requestAnimationFrame(tick)
+      }
+      animationFrameRequestID = window.requestAnimationFrame(tick)
+    })
+    this.canvasRef.current.addEventListener("mouseleave", e => {
+      window.cancelAnimationFrame(animationFrameRequestID)
+    })
+
 
     // random blurred image data
     // const pixels = datastore.generateRandomBlurredImageData(this.props.id, this.imageSize, this.imageSize)
@@ -254,7 +276,7 @@ class ListingCard extends React.Component {
           <div style={{position: "absolute", right: "10px", top: "10px"}}>
             <UserAvatar id={this.props.id} size={35} />
           </div>
-          <canvas ref={this.state.canvasRef} style={{width: "100%", height: "100%"}} width={this.imageSize} height={this.imageSize}></canvas>
+          <canvas ref={this.canvasRef} style={{width: "100%", height: "100%"}} width={this.imageSize} height={this.imageSize}></canvas>
         </div>
         <div style={{display: "flex", flexDirection: "column", justifyContent: "center", padding: "10px", width: this.imageSize+"px", boxSizing: "border-box"}}>
           <LabelLarge style={{textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden"}}>

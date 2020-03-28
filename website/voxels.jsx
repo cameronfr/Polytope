@@ -402,9 +402,9 @@ class VoxelRenderer {
         this.render(this.renderQueue.pop())
       }
       // if render and try and copy more than once per frame, won't work
-      !this.stopped && window.requestAnimationFrame(renderLoop)
+      this.animationFrameRequestID = window.requestAnimationFrame(renderLoop)
     }
-    window.requestAnimationFrame(renderLoop)
+    this.animationFrameRequestID = window.requestAnimationFrame(renderLoop)
   }
 
   // should probably just take a gameState, element in the future
@@ -431,8 +431,8 @@ class VoxelRenderer {
   }
 
   destroy() {
+    window.cancelAnimationFrame(this.animationFrameRequestID)
     this.listeners.map(([obj, eventName, func]) => obj.removeEventListener(eventName, func))
-    this.stopped = true
     this.regl.destroy()
     this.canvas.remove()
   }
@@ -503,9 +503,9 @@ class VoxelEditor extends React.Component {
       this.controls.externalTick(1/60)
       this.voxelRenderer.render(this.renderTargetID)
       this.stats.end()
-      window.requestAnimationFrame(tick)
+      this.animationFrameRequestID = window.requestAnimationFrame(tick)
     }
-    window.requestAnimationFrame(tick)
+    this.animationFrameRequestID = window.requestAnimationFrame(tick)
 
   }
 
@@ -515,6 +515,7 @@ class VoxelEditor extends React.Component {
   }
 
   componentWillUnmount() {
+    window.cancelAnimationFrame(this.animationFrameRequestID)
     this.listeners.map(([obj, eventName, func]) => obj.removeEventListener(eventName, func))
     this.voxelRenderer.destroy()
   }
