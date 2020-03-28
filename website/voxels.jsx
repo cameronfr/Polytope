@@ -15,6 +15,44 @@ import mat4 from "gl-mat4"
 import {LightTheme, BaseProvider, styled} from 'baseui';
 const THEME = LightTheme
 
+class VoxelRenderer {
+  constructor(props) {
+    // create hidden canvas
+    // this.regl = regl(canvas)
+    // setup shaders
+    // this.idCounter = 0
+    // this.targets = {}
+    // 
+    // window.addEventListener('resize', () => this.render());
+    // window.addEventListener('scroll', () => this.render());
+  }
+
+  // addTarget(voxels, cameraPos, element) {
+  //  idCounter +=1
+  //  this.targets[idCounter] = [voxels, cameraPos, element]
+  //  return idCounter
+  // }
+
+  render() {
+    resizeHiddenCanvasToDisplay
+    canvas.style.transform = `translateY(${window.scrollY}px)`;
+    Object.entries(this.targets).map([key, [voxels, cameraPos, element]] => {
+      regl in the uniforms
+      const = viewElement.getBoundingClientRect();
+      if (rect.bottom < 0 || rect.top  > this.canvas.clientHeight ||
+          rect.right  < 0 || rect.left > this.canvas.clientWidth) {
+        return;  // it's off screen
+      }
+
+    })
+    const width  = rect.right - rect.left;
+    const height = rect.bottom - rect.top;
+    const left   = rect.left;
+    const bottom = this.canvas.clientHeight - rect.bottom - 1;
+  }
+
+}
+
 class Voxels extends React.Component {
 
 
@@ -378,24 +416,29 @@ class Voxels extends React.Component {
 
 
     // regl.frame() wraps requestAnimationFrame and also handles viewport changes
+    var frameCount = 0
     this.regl.frame(({time}) => {
+      frameCount += 1
       stats.begin()
-      this.regl.clear({
-        color: [0, 0, 0, 0],
-        depth: 1
-      })
-      this.controls.externalTick(1/60)
-      //console.log(this.camera.matrixWorld.elements)
-      drawTriangle({
-        color: [
-          Math.cos(time * 1),
-          Math.sin(time * 0.8),
-          Math.cos(time * 3),
-          1
-        ]
-      })
-      stats.end()
+      if (frameCount % 1 == 0) {
+        this.regl.clear({
+          color: [0, 0, 0, 0],
+          depth: 1
+        })
+        this.controls.externalTick(1/60)
+        //console.log(this.camera.matrixWorld.elements)
+        drawTriangle({
+          color: [
+            Math.cos(time * 1),
+            Math.sin(time * 0.8),
+            Math.cos(time * 3),
+            1
+          ]
+        })
+        stats.end()
+      }
     })
+
   }
 
   addEventListener(obj, eventName, func) {
@@ -620,11 +663,11 @@ class FlyControls {
 
     this.listeners = []
     this.addEventListener(window, "keydown", e => {
-      this.updateKeystates(e.key, true)
+      this.capturingMouseMovement && this.updateKeystates(e.key, true)
       e.key == "e" && this.toggleMouseCapture()
     })
     this.addEventListener(window, "keyup", e => {
-      this.updateKeystates(e.key, false)
+      this.capturingMouseMovement && this.updateKeystates(e.key, false)
     })
     this.addEventListener(domElement, "mousedown", e => {
       if (e.which == 1) { // left click
