@@ -6,7 +6,7 @@ var ReactDOM = require("react-dom")
 
 import Stats from "stats.js"
 
-import * as THREE from 'three';
+import {Vector3, PerspectiveCamera, Box3} from 'three';
 import Regl from "regl"
 import ndarray from "ndarray"
 import mat4 from "gl-mat4"
@@ -480,10 +480,10 @@ class VoxelEditor extends React.Component {
     this.blockManager = new BlockManager(worldSize)
 
 
-    this.camera = new THREE.PerspectiveCamera(95, 1.0, 0.1, 1000)
+    this.camera = new PerspectiveCamera(95, 1.0, 0.1, 1000)
     this.controls = new FlyControls(this.camera, this.canvasRef.current, this.blockManager, this.gameState)
     this.camera.position.set(worldSize[0]/2.0, 10, 0)
-    this.camera.lookAt(new THREE.Vector3(worldSize[0]/2.0, 0, worldSize[2]/2.0))
+    this.camera.lookAt(new Vector3(worldSize[0]/2.0, 0, worldSize[2]/2.0))
 
     this.resizeCamera()
     this.listeners = []
@@ -652,11 +652,11 @@ class BlockManager {
             this.blocks.set(i, j, k, 3, k + 1)
           }
           if (Math.random() > 0.90) {
-            this.blocks.set(i, j, k, 3, 1 + Math.floor(Math.random()*16))
+            // this.blocks.set(i, j, k, 3, 1 + Math.floor(Math.random()*16))
           }
           // let color = randomColor({format:"rgbArray"})
           if (j == 0) {
-            // this.blocks.set(i, j, k, 3, 1)
+            this.blocks.set(i, j, k, 3, 1)
           }
         }
       }
@@ -764,7 +764,7 @@ class FlyControls {
     this.maxVelocity = 0.2 // in units/seconds
     this.timeToReachMaxSpeed = 0.6 // in seconds
     this.timeToReachZeroSpeed = 0.2 // in seconds
-    this.velocity = new THREE.Vector3(0, 0, 0)
+    this.velocity = new Vector3(0, 0, 0)
     this.rotationSensitivty = 0.005 // in radians per (pixel of mouse movement)
 
     // Special callback used for e.g. removing block selection
@@ -815,12 +815,12 @@ class FlyControls {
   }
 
   abs(vector3) {
-    var absVec = new THREE.Vector3(Math.abs(vector3.x), Math.abs(vector3.y), Math.abs(vector3.z))
+    var absVec = new Vector3(Math.abs(vector3.x), Math.abs(vector3.y), Math.abs(vector3.z))
     return absVec
   }
 
   blockNormalAtLocation(blockIdx, location) {
-    var normal = new THREE.Vector3(0, 0, 0)
+    var normal = new Vector3(0, 0, 0)
     var dist = blockIdx.clone().addScalar(0.5).sub(location) // vector from location to block Center
     var maxDim = this.argmax(this.abs(dist))
     normal.setComponent(maxDim, -Math.sign(dist.getComponent(maxDim)))
@@ -828,13 +828,13 @@ class FlyControls {
   }
 
   playerBox(location) {
-    var playerBox = new THREE.Box3(new THREE.Vector3(location.x - 0.3, location.y - 1.3, location.z - 0.3), new THREE.Vector3(location.x +0.3, location.y + 0.3, location.z + 0.3))
+    var playerBox = new Box3(new Vector3(location.x - 0.3, location.y - 1.3, location.z - 0.3), new Vector3(location.x +0.3, location.y + 0.3, location.z + 0.3))
     return playerBox
   }
 
   playerCollidesWithCube(potentialCubeIdx, location) {
     var playerBox = this.playerBox(location)
-    var blockBox = new THREE.Box3(potentialCubeIdx.clone(), potentialCubeIdx.clone().addScalar(1))
+    var blockBox = new Box3(potentialCubeIdx.clone(), potentialCubeIdx.clone().addScalar(1))
     var isCollision = playerBox.intersectsBox(blockBox)
     return isCollision
   }
@@ -851,26 +851,26 @@ class FlyControls {
     var yLocations = [Math.floor(playerBox.min.y), Math.floor(playerBox.min.y+1), Math.floor(playerBox.max.y)]
     var zLocations = [Math.floor(playerBox.min.z), Math.floor(playerBox.max.z)]
 
-    var forceDir = new THREE.Vector3(0, 0, 0);
+    var forceDir = new Vector3(0, 0, 0);
 
     for (var i=0; i < xLocations.length; i++) {
       for (var j=0; j < yLocations.length; j++) {
         for (var k=0; k < zLocations.length; k++) {
 
-          var possibleBlock = new THREE.Vector3(xLocations[i], yLocations[j], zLocations[k])
-          var isWithinBounds = possibleBlock.clone().clamp(new THREE.Vector3(0,0,0), (new THREE.Vector3(...this.blockManager.blocks.shape)).subScalar(1)).equals(possibleBlock)
+          var possibleBlock = new Vector3(xLocations[i], yLocations[j], zLocations[k])
+          var isWithinBounds = possibleBlock.clone().clamp(new Vector3(0,0,0), (new Vector3(...this.blockManager.blocks.shape)).subScalar(1)).equals(possibleBlock)
           if (isWithinBounds) {
             // var isBlock = this.blocks.get(xLocations[i], yLocations[j], zLocations[k], 3) != 0
             var isBlock = this.blockManager.blockExists(possibleBlock)
             if (isBlock) {
-              var blockBox = new THREE.Box3(possibleBlock.clone(), possibleBlock.clone().addScalar(1))
+              var blockBox = new Box3(possibleBlock.clone(), possibleBlock.clone().addScalar(1))
               var isCollision = playerBox.intersectsBox(blockBox)
               if (isCollision) {
                 var bodyRef
                 if (j == 0) {
-                  bodyRef = (new THREE.Vector3(0, -1, 0)).add(newLocation) // reference from bottom block of body
+                  bodyRef = (new Vector3(0, -1, 0)).add(newLocation) // reference from bottom block of body
                 } else if (j == 1) {
-                  bodyRef = (new THREE.Vector3(0, -0.5, 0)).add(newLocation) // reference from middle of body
+                  bodyRef = (new Vector3(0, -0.5, 0)).add(newLocation) // reference from middle of body
                 } else if (j == 2) {
                   bodyRef = newLocation // reference from top of body
                 }
@@ -899,22 +899,22 @@ class FlyControls {
     this.onNextTick && this.onNextTick()
     this.onNextTick = null
 
-    var cameraDirection = new THREE.Vector3()
+    var cameraDirection = new Vector3()
     this.camera.getWorldDirection(cameraDirection)
-    var forceVector = new THREE.Vector3(0, 0, 0)
+    var forceVector = new Vector3(0, 0, 0)
 
     if ("w" in this.keyState) {
       forceVector.add(cameraDirection)
     } if ("s" in this.keyState) {
       forceVector.add(cameraDirection.clone().negate())
     } if ("a" in this.keyState) {
-      forceVector.add((new THREE.Vector3(0, 1, 0)).cross(cameraDirection))
+      forceVector.add((new Vector3(0, 1, 0)).cross(cameraDirection))
     } if ("d" in this.keyState) {
-      forceVector.add((new THREE.Vector3(0, 1, 0)).cross(cameraDirection).negate())
+      forceVector.add((new Vector3(0, 1, 0)).cross(cameraDirection).negate())
     } if (" " in this.keyState) {
-      forceVector.add(new THREE.Vector3(0, 1, 0))
+      forceVector.add(new Vector3(0, 1, 0))
     } if ("shift" in this.keyState) {
-      forceVector.add(new THREE.Vector3(0, -1, 0))
+      forceVector.add(new Vector3(0, -1, 0))
     }
 
     const acceleration = this.maxVelocity * (timeDelta/this.timeToReachMaxSpeed)
@@ -924,7 +924,7 @@ class FlyControls {
     var decelerationForce = this.velocity.clone().normalize().negate().multiplyScalar(Math.min(deceleration, this.velocity.length()))
 
     // Have constant deceleration force when no input.
-    var haveMoveInput = !forceVector.equals(new THREE.Vector3(0, 0, 0))
+    var haveMoveInput = !forceVector.equals(new Vector3(0, 0, 0))
     if (haveMoveInput) {
       forceVector.sub(decelerationForce)
     }
@@ -942,14 +942,14 @@ class FlyControls {
 
     // Camera rotation
     // Can move head more than 90 deg if move camera quickly
-    var cameraCrossVec = (new THREE.Vector3(0, 1, 0)).cross(cameraDirection).normalize()
-    var angleToStraightUpDown = cameraDirection.angleTo(new THREE.Vector3(0, 1, 0)) // straight up and down
+    var cameraCrossVec = (new Vector3(0, 1, 0)).cross(cameraDirection).normalize()
+    var angleToStraightUpDown = cameraDirection.angleTo(new Vector3(0, 1, 0)) // straight up and down
     const minAngle = 0.2
     var tiltDir = Math.sign(this.mouseMoveBuffer.y)
     if ((angleToStraightUpDown < minAngle && tiltDir == 1) || (angleToStraightUpDown > (Math.PI - minAngle) && tiltDir == -1) || (angleToStraightUpDown > minAngle && angleToStraightUpDown < (Math.PI - minAngle))) {
       this.camera.rotateOnWorldAxis(cameraCrossVec, this.rotationSensitivty * this.mouseMoveBuffer.y)
     }
-    this.camera.rotateOnWorldAxis(new THREE.Vector3(0, 1, 0), -this.rotationSensitivty * this.mouseMoveBuffer.x)
+    this.camera.rotateOnWorldAxis(new Vector3(0, 1, 0), -this.rotationSensitivty * this.mouseMoveBuffer.x)
 
     this.mouseMoveBuffer = {x: 0, y: 0}
 
@@ -986,184 +986,6 @@ class FlyControls {
     }
   }
 }
-
-// ALTERNATIVE COMPONENTS (NOT USED):
-
-class VoxelsThreeJS extends React.Component {
-  constructor(props) {
-    super(props)
-
-    this.containerRef = React.createRef()
-    this.canvasRef = React.createRef()
-    this.state = {}
-  }
-
-  componentDidMount() {
-    console.log("Voxel component mounted")
-
-    // FPS counter
-    var stats = new Stats();
-    stats.showPanel(0);
-    this.containerRef.current.appendChild(stats.dom)
-
-    // Camera and scene instantiation
-    this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera( 75, 1, 0.1, 1000 );
-
-    //Block manager
-    this.blockManager = new BlockScene(null)
-    this.scene.add(this.blockManager.sceneGroup)
-
-    // Controls
-    this.controls = new FlyControls(this.camera, this.canvasRef.current)
-
-    // var context = this.canvasRef.current.getContext('webgl2', {alpha: false});
-    var context = this.canvasRef.current.getContext('webgl', {alpha: false});
-    this.renderer = new THREE.WebGLRenderer({canvas: this.canvasRef.current, antialias: false, context});
-    window.addEventListener("resize", () => this.resizeCanvasAndCamera())
-    this.resizeCanvasAndCamera()
-    // Keep at half-res
-    // this.renderer.setPixelRatio(window.devicePixelRatio);
-    this.scene.background = new THREE.Color(0xffffff);
-
-
-    // var geometry = new THREE.BoxGeometry();
-    // var material = new THREE.MeshStandardMaterial({color: 0x00ff00});
-    // var cube = new THREE.Mesh(geometry, material);
-    // this.scene.add(cube);
-    var directionalLight = new THREE.DirectionalLight( 0xffffff, 1 );
-    directionalLight.castShadow = true
-    var ambientLight = new THREE.AmbientLight(0x404040, 1)
-    this.scene.add(directionalLight)
-    this.scene.add(ambientLight)
-
-    var geometry = new THREE.PlaneGeometry(100, 100);
-    var material = new THREE.MeshBasicMaterial( {color: 0xf9f9f9, side: THREE.DoubleSide} );
-    var plane = new THREE.Mesh( geometry, material );
-    plane.rotation.x = Math.PI / 2.0
-    plane.position.y = -0.5
-    this.scene.add( plane );
-
-    var animate = (lastTime => {
-      stats.begin()
-      // cube.rotation.x += 0.01
-      // cube.rotation.y += 0.01
-      this.renderer.render(this.scene, this.camera);
-      this.controls.externalTick(1/60)
-      stats.end()
-
-      requestAnimationFrame(animate)
-    })
-    requestAnimationFrame(animate)
-    this.camera.position.z = 5
-
-  }
-
-  resizeCanvasAndCamera() {
-    const { height, width} = this.canvasRef.current.getBoundingClientRect();
-    this.renderer.setSize(width, height, false)
-
-    // If want constant size objects across resizing
-    // const startingFOV = 75
-    // const startingHeight = 600
-    // var tanFOV = Math.tan(((Math.PI/180) * startingFOV/2 ));
-    // this.camera.fov = (360/Math.PI) * Math.atan(tanFOV*(height/startingHeight));
-
-    this.camera.aspect = width / height
-    this.camera.updateProjectionMatrix()
-
-  }
-
-  render() {
-    return (
-      <div style={{width: "100%", height:"100%"}}>
-        <div style={{display: "flex", flexDirection: "row", height: "100%", padding: THEME.sizing.scale1000, boxSizing: "border-box"}}>
-          <div ref={this.containerRef} style={{flexGrow: "1", display: "flex", flexDirection: "column"}}>
-            <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", flexGrow: "1"}}>
-              <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
-            </div>
-          </div>
-          <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", cursor: "pointer", padding: THEME.sizing.scale600, marginLeft: THEME.sizing.scale1000}}>
-            hi i am a big margin
-            {this.state.fps}
-          </div>
-        </div>
-      </div>
-    )
-  }
-}
-
-// Handles updating block state array
-// Handles block state array <=> THREE.js group syncing
-class BlockScene  {
-  constructor(blocks) {
-    this.sceneGroup = new THREE.Group()
-    const size = 16
-
-    // If perf becomes issue, switch to tf.js etc
-    if (!blocks) {
-      this.blocks = this.empty3Darray(size, size, size)
-      console.log(this.blocks)
-      this.blocks[8][0][8] = 1
-      this.blocks[8][1][8] = 1
-      this.blocks[0][0][0] = 1
-    }
-    else {
-      this.blocks = blocks
-    }
-
-    this.recreateSceneFromBlocks()
-  }
-
-  empty3Darray(size1, size2, size3) {
-    var array = new Array()
-    for (var i = 0; i < size1; i++) {
-      array[i] = new Array()
-      for (var j = 0; j < size2; j++){
-        array[i][j] = new Array()
-        for (var k = 0; k < size3; k++) {
-          array[i][j][k] = 0//Math.floor(Math.random()*2)
-          if (j == 0) {
-            array[i][j][k] = 1
-          }
-        }
-      }
-    }
-    return array
-  }
-
-  iterator3D(array, func) {
-    for (var i = 0; i < array.length; i++) {
-      for (var j = 0; j < array[0].length; j++){
-        for (var k = 0; k < array[0][0].length; k++) {
-          func(i, j, k, array[i][j][k])
-        }
-      }
-    }
-  }
-
-  recreateSceneFromBlocks() {
-    this.iterator3D(this.blocks, (x, y, z, val) => {
-        if (!(val == 0)) {
-          this.addOrRemoveBlock(x, y, z, true, 1)
-        }
-    })
-  }
-
-  addOrRemoveBlock(x, y, z, isAdd, blockValue) {
-    var geometry = new THREE.BoxGeometry();
-    var material = new THREE.MeshStandardMaterial({color: 0x00ff00});
-    var cube = new THREE.Mesh(geometry, material);
-    cube.position.set(x, y, z)
-    this.sceneGroup.add(cube)
-
-  }
-
-
-
-}
-
-
 
 module.exports = {
   VoxelEditor,
