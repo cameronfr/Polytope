@@ -566,9 +566,39 @@ class WorldGenerator {
     var bottomSlice = this.blocks.lo(0, 0, 0, 3).hi(this.blocks.shape[0], 1, this.blocks.shape[2], 1)
     np.assigns(bottomSlice, 1)
 
+    return this
+  }
+
+  colorStripe() {
     for (var z = 0; z < this.blocks.shape[2]; z++) {
       this.blocks.set(1, 1, z, 3, z)
     }
+    return this
+  }
+
+  // puts random color rand size prism on floor flate
+  // working with nddaray-ops not easy
+  randomRectangularPrism() {
+    const worldShape = ndarray(this.blocks.shape.slice(0, 3))
+
+    var widths = ndarray(Array(3))
+    var startCornerPos = ndarray(Array(3))
+
+    np.muleq(np.random(widths), worldShape)
+    np.divseq(widths, 2)
+    np.flooreq(widths)
+    np.addseq(widths, 1) //min width of 1
+
+    np.sub(startCornerPos, worldShape, widths)
+    np.divseq(startCornerPos, 2)
+    np.flooreq(startCornerPos)
+    startCornerPos.set(1, 1) //make it rest on the floor plate
+
+    this.colorStripe()
+
+    var randomColor = Math.floor(Math.random() * 16) * 1
+    var prismSlice = this.blocks.lo(...startCornerPos.data, 3).hi(...widths.data, 1)
+    np.assigns(prismSlice, randomColor)
 
     return this
   }
@@ -579,22 +609,22 @@ class GameState {
 
   // modified Island Joy 16: kerrielake
   blockColors = [
-    {id:0,name: "white", hex: "#ffffff"},
-    {id:1,name: "peach", hex: "#f7b69e"},
-    {id:2,name: "clayRed", hex: "#cb4d68"},
-    {id:3,name: "crimson", hex: "#c92464"},
-    {id:4,name: "orange", hex: "#f99252"},
-    {id:5,name: "yellow", hex: "#f7e476"},
-    {id:6,name: "livelyGreen", hex: "#a1e55a"},
-    {id:7,name: "leafGreen", hex: "#5bb361"},
-    {id:8,name: "teal", hex: "#6df7c1"},
-    {id:9,name: "waterBlue", hex: "#11adc1"},
-    {id:10,name: "coralBlue", hex: "#1e8875"},
-    {id:11,name: "royalPurple", hex: "#6a3771"},
-    {id:12,name: "deepPurple", hex: "#393457"},
-    {id:13,name: "gray", hex: "#606c81"},
-    {id:14,name: "brown", hex: "#644536"},
-    {id:15,name: "rock", hex: "#9b9c82"},
+    {id:1,name: "white", hex: "#ffffff"},
+    {id:2,name: "peach", hex: "#f7b69e"},
+    {id:3,name: "clayRed", hex: "#cb4d68"},
+    {id:4,name: "crimson", hex: "#c92464"},
+    {id:5,name: "orange", hex: "#f99252"},
+    {id:6,name: "yellow", hex: "#f7e476"},
+    {id:7,name: "livelyGreen", hex: "#a1e55a"},
+    {id:8,name: "leafGreen", hex: "#5bb361"},
+    {id:9,name: "teal", hex: "#6df7c1"},
+    {id:10,name: "waterBlue", hex: "#11adc1"},
+    {id:11,name: "coralBlue", hex: "#1e8875"},
+    {id:12,name: "royalPurple", hex: "#6a3771"},
+    {id:13,name: "deepPurple", hex: "#393457"},
+    {id:14,name: "gray", hex: "#606c81"},
+    {id:15,name: "brown", hex: "#644536"},
+    {id:16,name: "rock", hex: "#9b9c82"},
   ]
 
   constructor(options) {

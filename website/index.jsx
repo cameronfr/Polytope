@@ -1,6 +1,6 @@
 var React = require("react")
 var ReactDOM = require("react-dom")
-import { Router, Link as RouterLink, navigate } from "@reach/router"
+import { Router, Link as RawRouterLink, navigate } from "@reach/router"
 
 import {VoxelEditor, VoxelRenderer, FlyControls, GameState, AutomaticOrbiter, WorldGenerator} from "./voxels.jsx"
 import {Vector3, PerspectiveCamera} from 'three';
@@ -110,7 +110,7 @@ class Datastore {
     const ownerId = id
 
     const worldSize = new Vector3(17, 17, 17)
-    const blocks = (new WorldGenerator({worldSize})).worldWithPlate().blocks
+    const blocks = (new WorldGenerator({worldSize})).worldWithPlate().randomRectangularPrism().blocks
 
     const data = {price, name, ownerId, blocks}
     this.listingCache[id] = data
@@ -274,11 +274,11 @@ class ListingCard extends React.Component {
   }
 
   render() {
-    var onClick = e => {e.preventDefault(); navigate(`item/${this.props.id}`)}
     const { price, name } = datastore.getListingDataById(this.props.id)
 
     return (
-      <div onClick={onClick} style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", cursor: "pointer"}}>
+      <RouterLink to={`/item/${this.props.id}`}>
+      <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", cursor: "pointer"}}>
         <div style={{height: this.imageSize+"px", width: this.imageSize+"px", position: "relative", backgroundColor: "eee"}}>
           <div style={{position: "absolute", right: "10px", top: "10px"}}>
             <UserAvatar id={this.props.id} size={35} />
@@ -295,6 +295,7 @@ class ListingCard extends React.Component {
           </LabelSmall>
         </div>
       </div>
+      </RouterLink>
     )
   }
 }
@@ -455,10 +456,12 @@ class Header extends React.Component {
       <HeaderNavigation style={{backgroundColor: "white"}}>
         <StyledNavigationList $align={ALIGN.left}>
           <StyledNavigationItem>
-            <DisplayMedium onClick={() => navigate("/")}
-              style={{userSelect: "none", cursor: "pointer", paddingLeft: "0"}}>
-              Polytope
-            </DisplayMedium>
+            <RouterLink to={"/"} >
+              <DisplayMedium
+                style={{userSelect: "none", cursor: "pointer", paddingLeft: "0"}}>
+                Polytope
+              </DisplayMedium>
+            </RouterLink>
           </StyledNavigationItem>
         </StyledNavigationList>
         <StyledNavigationList $align={ALIGN.center}>
@@ -470,14 +473,18 @@ class Header extends React.Component {
         </StyledNavigationList>
         <StyledNavigationList $align={ALIGN.right}>
           <StyledNavigationItem style={{paddingLeft: "0px"}}>
-            <Button onClick={() => navigate("/home")} kind={KIND.minimal} size={SIZE.default}>
-              Home
-            </Button>
+            <RouterLink to={"/home"}>
+              <Button kind={KIND.minimal} size={SIZE.default}>
+                Home
+              </Button>
+            </RouterLink>
           </StyledNavigationItem>
           <StyledNavigationItem style={{paddingLeft: "0"}}>
-            <Button onClick={() => navigate("/newItem")} kind={KIND.minimal} size={SIZE.default}>
+            <RouterLink to={"/newItem"}>
+            <Button kind={KIND.minimal} size={SIZE.default}>
               Create Item
             </Button>
+            </RouterLink>
           </StyledNavigationItem>
         </StyledNavigationList>
         <StyledNavigationList $align={ALIGN.right} style={{marginRight: "20px"}}>
@@ -488,6 +495,13 @@ class Header extends React.Component {
       </HeaderNavigation>
     )
   }
+}
+
+var RouterLink = props => {
+  var unstyledLink = <RawRouterLink {...props} style={{textDecoration: "none"}}>
+    {props.children}
+  </RawRouterLink>
+  return unstyledLink
 }
 
 const THEME = LightTheme
