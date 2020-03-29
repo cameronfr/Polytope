@@ -1,9 +1,8 @@
-// require('babel-polyfill')
 var React = require("react")
 var ReactDOM = require("react-dom")
 import { Router, Link as RouterLink, navigate } from "@reach/router"
 
-import {VoxelEditor, VoxelRenderer, FlyControls, BlockManager, GameState} from "./voxels.jsx"
+import {VoxelEditor, VoxelRenderer, FlyControls, GameState, AutomaticOrbiter, WorldGenerator} from "./voxels.jsx"
 import {Vector3, PerspectiveCamera} from 'three';
 import {ApparatusGenerator} from "./procedural.jsx"
 
@@ -45,8 +44,8 @@ import {
   Caption1,
   Caption2,
 } from 'baseui/typography';
-import {FlexGrid, FlexGridItem} from 'baseui/flex-grid';
-import {Grid, Cell} from 'baseui/layout-grid'; //NOT meant for items -- meant for site layout
+// import {FlexGrid, FlexGridItem} from 'baseui/flex-grid';
+// import {Grid, Cell} from 'baseui/layout-grid'; //NOT meant for items -- meant for site layout
 import {
   Card,
   StyledBody,
@@ -110,10 +109,14 @@ class Datastore {
     name = name[0].toUpperCase() + name.slice(1, name.length)
     const ownerId = id
 
-    const data = {price, name, ownerId}
+    const worldSize = new Vector3(17, 17, 17)
+    const blocks = (new WorldGenerator({worldSize})).worldWithPlate().blocks
+
+    const data = {price, name, ownerId, blocks}
     this.listingCache[id] = data
     return data
   }
+
 
   getUserDataById(id) {
     if (id in this.userCache) {
@@ -127,8 +130,6 @@ class Datastore {
     var data = {name, avatarURL}
     this.userCache[id] = data
     return data
-
-
   }
 
 }
@@ -168,13 +169,15 @@ class Listings extends React.Component {
   constructor(props) {
     super(props)
 
-    const worldSize = [17,17,17] //should be stored in blockmanager or gamestate and passed as prop to shader
-    this.voxelRenderer = new VoxelRenderer({worldSize, pixelRatio:window.devicePixelRatio})
+    this.voxelRenderer = new VoxelRenderer({pixelRatio:window.devicePixelRatio})
+  }
 
+  componentWillUnmount() {
+    this.voxelRenderer.destroy()
   }
 
   render() {
-    var cards = [...Array(10).keys()].map(idx => {
+    var cards = [...Array(40).keys()].map(idx => {
       return (
         <div style={{marginRight: this.sideMargins, marginBottom: this.topBottomMargins}} key={idx} >
           <ListingCard id={idx} voxelRenderer={this.voxelRenderer} />
@@ -182,17 +185,17 @@ class Listings extends React.Component {
       )
     })
 
-    var hiddenSpacers = [...Array(0).keys()].map(idx => {
+    var hiddenSpacers = [...Array(5).keys()].map(idx => {
       return (
         <div style={{marginRight: this.sideMargins, maxHeight:"0", visibility: "hidden", overflow: "hidden"}} key={idx+"sp"} >
-          <ListingCard id={idx} voxelRenderer={this.voxelRenderer} />
+          <ListingCard id={idx} isSpacer={true} />
         </div>
       )
     })
 
     return (
       <div style={{width: "100%", height: "100%", overflow: "auto"}}>
-        <div style={{display: "flex", justifyContent: "center", alignItems: "start", flexWrap: "wrap", marginLeft: this.sideMargins, marginTop: this.topBottomMargins,}}>
+        <div style={{display: "flex", justifyContent: "center", alignItems: "start", flexWrap: "wrap", marginLeft: this.sideMargins, marginTop: this.topBottomMargins, maxWidth: "800px"}}>
           {cards}
           {hiddenSpacers}
         </div>
@@ -214,64 +217,75 @@ class ListingCard extends React.Component {
   }
 
   componentDidMount() {
-    const worldSize = [17,17,17] //# blocks makes no diff when staring off into void
-    this.gameState = new GameState()
-    this.blockManager = new BlockManager(worldSize)
+    this.updateBlockDisplay()
+  }
 
-    const lookAtPos = new Vector3(worldSize[0]/2.0, 10, worldSize[2]/2.0)
-    const orbitCenter = lookAtPos.clone()
-    const orbitHeight = 8
-    const orbitPeriod = 10.0 //seconds
-    const orbitRadius = 1.2 * worldSize[0]/2.0
+  componentDidUpdate() {
+    this.cleanupBlockDisplay()
+    this.updateBlockDisplay()
+    //ANY prop change will cause block display to fully update. also, listeners not removed
+  }
 
-    this.camera = new PerspectiveCamera(95, 1.0, 0.1, 1000)
-    const startPos = orbitCenter.clone().add(new Vector3(orbitRadius, orbitHeight, 0))
-    this.camera.position.set(startPos.x, startPos.y, startPos.z)
-    // not sure why have to update world matrix -- maybe three.js renderer usually does automatically
-    this.camera.lookAt(lookAtPos)
-    this.camera.updateWorldMatrix()
-    this.controls = new FlyControls(this.camera, this.canvasRef.current, this.blockManager, this.gameState)
-    this.renderID = this.props.voxelRenderer.addTarget({blockManager: this.blockManager, gameState: this.gameState, camera: this.camera, element: this.canvasRef.current})
+  updateBlockDisplay() {
+    if (this.props.isSpacer) {return}
 
+    this.blockDisplayListeners = []
+    var addEventListener = (obj, eventName, func) => {
+      this.blockDisplayListeners.push([obj, eventName, func])
+      obj.addEventListener(eventName, func)
+    }
 
-    var animationFrameRequestID
-    var rotationTime = 0
-    this.canvasRef.current.addEventListener("mouseover", e => {
+    var {blocks} = datastore.getListingDataById(this.props.id)
+
+    var gameState = new GameState({blocks})
+
+    const lookAtPos = new Vector3(gameState.worldSize.x/2, 10, gameState.worldSize.y/2)
+    var orbiter = new AutomaticOrbiter(gameState.camera, {center: lookAtPos.clone(), height: 8, period: 10, radius: 1.2*gameState.worldSize.x/2, lookAtPos})
+    orbiter.setRotationToTime(0)
+    this.renderID = this.props.voxelRenderer.addTarget({gameState: gameState, element: this.canvasRef.current})
+
+    // Orbiting
+    var timeElapsed = 0
+    addEventListener(this.canvasRef.current, "mouseover", e => {
       var lastTimestamp = window.performance.now()
       var tick = timestamp => {
-        var newPos = (new Vector3(Math.cos(rotationTime)*orbitRadius, orbitHeight, Math.sin(rotationTime)*orbitRadius)).add(orbitCenter)
-        this.camera.position.set(newPos.x, newPos.y, newPos.z)
-        this.camera.lookAt(lookAtPos)
         this.props.voxelRenderer.renderQueue.unshift(this.renderID)
-        animationFrameRequestID = window.requestAnimationFrame(tick)
-        var elapsed = 2 * (Math.PI/orbitPeriod) * (timestamp - lastTimestamp) / 1000
+        timeElapsed += (timestamp - lastTimestamp) / 1000
         lastTimestamp = timestamp
-        rotationTime += elapsed
+        orbiter.setRotationToTime(timeElapsed)
+        this.animationFrameRequestID = window.requestAnimationFrame(tick)
       }
-      animationFrameRequestID = window.requestAnimationFrame(tick)
+      this.animationFrameRequestID = window.requestAnimationFrame(tick)
     })
-    this.canvasRef.current.addEventListener("mouseleave", e => {
-      window.cancelAnimationFrame(animationFrameRequestID)
+    addEventListener(this.canvasRef.current, "mouseleave", e => {
+      window.cancelAnimationFrame(this.animationFrameRequestID)
     })
   }
 
-  componentWillUnmount() {
+  cleanupBlockDisplay() {
+    this.blockDisplayListeners.map(([obj, eventName, func]) => obj.removeEventListener(eventName, func))
+    window.cancelAnimationFrame(this.animationFrameRequestID)
     this.props.voxelRenderer.removeTarget(this.renderID)
   }
 
+  componentWillUnmount() {
+    if (this.props.isSpacer) {return}
+    this.cleanupBlockDisplay()
+  }
+
   render() {
-    // var onClick = e => {e.preventDefault(); navigate(`item/${this.props.id}`)}
-    var onClick = e => null;
+    var onClick = e => {e.preventDefault(); navigate(`item/${this.props.id}`)}
     const { price, name } = datastore.getListingDataById(this.props.id)
 
     return (
       <div onClick={onClick} style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", cursor: "pointer"}}>
-        <div style={{height: this.imageSize+"px", width: this.imageSize+"px", position: "relative"}}>
+        <div style={{height: this.imageSize+"px", width: this.imageSize+"px", position: "relative", backgroundColor: "eee"}}>
           <div style={{position: "absolute", right: "10px", top: "10px"}}>
             <UserAvatar id={this.props.id} size={35} />
           </div>
           <canvas ref={this.canvasRef} style={{width: "100%", height: "100%"}} width={this.imageSize} height={this.imageSize}></canvas>
         </div>
+        <div style={{width: this.imageSize+"px", height: "1px", backgroundColor: "#efefef"}}></div>
         <div style={{display: "flex", flexDirection: "column", justifyContent: "center", padding: "10px", width: this.imageSize+"px", boxSizing: "border-box"}}>
           <LabelLarge style={{textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden"}}>
             {name}
@@ -317,7 +331,7 @@ class UserAvatar extends React.Component {
     const { avatarURL } = datastore.getUserDataById(this.props.id)
 
     return (
-      <div onClick={onClick} style={{height: this.props.size+"px", width: this.props.size+"px", borderRadius: this.props.size/2.0+"px", backgroundColor: "#eee", cursor: "pointer", overflow: "hidden"}}>
+      <div onClick={onClick} style={{height: this.props.size+"px", width: this.props.size+"px", borderRadius: this.props.size/2.0+"px", backgroundColor: "#eee", cursor: "pointer", overflow: "hidden", boxShadow: "0px 0px 3px #ccc"}}>
         <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
       </div>
     )
@@ -331,6 +345,48 @@ class Listing extends React.Component {
 
   constructor(props) {
     super(props)
+    this.canvasRef = React.createRef()
+  }
+
+  componentDidMount() {
+    this.voxelRenderer = new VoxelRenderer({pixelRatio:1, canvas:this.canvasRef.current})
+    this.updateBlockDisplay()
+  }
+
+  // will update blocks even if blocks/props.id doesn't change
+  componentDidUpdate() {
+    this.cleanupBlockDisplay()
+    this.updateBlockDisplay()
+  }
+
+  updateBlockDisplay() {
+    const {blocks} = datastore.getListingDataById(this.props.id)
+    var gameState = new GameState({blocks})
+    var flyControls = new FlyControls({gameState, domElement: this.canvasRef.current})
+
+    // set initial position
+    const lookAtPos = new Vector3(gameState.worldSize.x/2, 10, gameState.worldSize.y/2)
+    var orbiter = new AutomaticOrbiter(gameState.camera, {center: lookAtPos.clone(), height: 8, period: 10, radius: 1.2*gameState.worldSize.x/2, lookAtPos})
+    orbiter.setRotationToTime(0)
+
+    this.renderID = this.voxelRenderer.addTarget({gameState: gameState, element: this.canvasRef.current})
+
+    var tick = timestamp => {
+      this.voxelRenderer.renderQueue.unshift(this.renderID)
+      flyControls.externalTick(1/60)
+      this.animationFrameRequestID = window.requestAnimationFrame(tick)
+    }
+    this.animationFrameRequestID = window.requestAnimationFrame(tick)
+  }
+
+  cleanupBlockDisplay() {
+    window.cancelAnimationFrame(this.animationFrameRequestID)
+    this.voxelRenderer.removeTarget(this.renderID)
+  }
+
+  componentWillUnmount() {
+    this.cleanupBlockDisplay()
+    this.voxelRenderer.destroy()
   }
 
   render() {
@@ -341,6 +397,7 @@ class Listing extends React.Component {
         <div style={{display: "flex", justifyContent: "center", alignItems: "center", padding: "20px"}}>
           <div style={{display: "flex", flexWrap: "wrap"}}>
             <div style={{width: this.viewAreaSize+"px", height: this.viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", margin: this.blockMargins+"px"}}>
+              <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
             </div>
             <div style={{width: this.viewAreaSize+"px", maxWidth: this.viewAreaSize + "px", display: "flex", flexDirection: "column", margin: this.blockMargins+"px"}}>
               <DisplaySmall color={["colorSecondary"]}>

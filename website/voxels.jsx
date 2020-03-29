@@ -1,6 +1,5 @@
 //Sphere optimization possible todo: https://medium.com/@calebleak/raymarching-voxel-rendering-58018201d9d6
 
-
 var React = require("react")
 var ReactDOM = require("react-dom")
 
@@ -10,6 +9,7 @@ import {Vector3, PerspectiveCamera, Box3} from 'three';
 import Regl from "regl"
 import ndarray from "ndarray"
 import mat4 from "gl-mat4"
+import np from "ndarray-ops"
 
 
 import {LightTheme, BaseProvider, styled} from 'baseui';
@@ -17,7 +17,6 @@ const THEME = LightTheme
 
 class VoxelRenderer {
   constructor(options) {
-    const worldSize = options.worldSize
     if (!options.canvas) {
       this.canvas = document.createElement('canvas')
       this.canvas.style.cssText ="position: absolute; top:0; left:0; height: 10; width:10px;" //chrome behavior: copying via ctx.drawimage won't work correctly unless canvas has size
@@ -70,7 +69,7 @@ class VoxelRenderer {
       uniform mat4 invView;
       uniform float timeMS;
       uniform sampler2D colorStorage;
-      const float worldSize = ${worldSize[0].toFixed(1)};
+      uniform vec3 worldSize;
       const int maxRaymarchSteps = 50;
       const float PI = 3.1415926535;
 
@@ -104,9 +103,10 @@ class VoxelRenderer {
       }
 
       vec4 blockValueAtIndex(vec3 index) {
-        if (clamp(index, 0.0, float(worldSize) - 1.0) == index) {
-          vec2 blockIdxs = vec2(index.x,index.y*worldSize + index.z);
-          vec4 blockValue = texture2DLodEXT(blocks, blockIdxs/vec2(worldSize, worldSize*worldSize), 0.0);
+        // if (clamp(index, 0.0, float(worldSize) - 1.0) == index) {
+        if (clamp(index, vec3(0, 0, 0), worldSize - 1.0) == index) {
+          vec2 blockIdxs = vec2(index.x,index.y*worldSize.y + index.z);
+          vec4 blockValue = texture2DLodEXT(blocks, blockIdxs/vec2(worldSize.x, worldSize.y*worldSize.z), 0.0);
           return blockValue;
         } else {
            return vec4(0, 0, 0, 0);
@@ -367,10 +367,14 @@ class VoxelRenderer {
         // This defines the color of the triangle to be a dynamic variable
         color: this.regl.prop('color'),
         blocks: (context, props) => {
-          var blocksReshape = ndarray(props.blockManager.data, [worldSize[0], worldSize[1]*worldSize[2], 4])
+          const worldSize = props.gameState.worldSize
+          var blocksReshape = ndarray(props.gameState.blocks.data, [worldSize.x, worldSize.y*worldSize.z, 4])
           var blocksTexture = this.regl.texture(blocksReshape)
           return blocksTexture
-          return null
+        },
+        worldSize: (context, props) => {
+          const worldSize = props.gameState.worldSize
+          return [worldSize.x, worldSize.y, worldSize.z]
         },
         viewportSize: (context) => {
           return ([context.viewportWidth, context.viewportHeight])
@@ -378,11 +382,11 @@ class VoxelRenderer {
         fragCoordOffset: (context, props) => props.fragCoordOffset,
         invProjection: (context, props) => {
           // gl-mat4 wasn't getting an inverse matrix (mb bcz NaN in perspective matrix?)
-          return props.camera.projectionMatrixInverse.elements
+          return props.gameState.camera.projectionMatrixInverse.elements
         },
         invView: (context, props) => {
           // view matrix is this.camera.matrixWorldInverse
-          return props.camera.matrixWorld.elements
+          return props.gameState.camera.matrixWorld.elements
         },
         imageTexture: imageTexture,
         timeMS: (() => (Date.now() / 1000) % 6.28),
@@ -399,7 +403,10 @@ class VoxelRenderer {
     this.renderQueue = []
     var renderLoop = time => {
       if (this.renderQueue.length > 0) {
-        this.render(this.renderQueue.pop())
+        var targetID = this.renderQueue.pop()
+        if (targetID in this.targets) {
+          this.render(targetID)
+        }
       }
       // if render and try and copy more than once per frame, won't work
       this.animationFrameRequestID = window.requestAnimationFrame(renderLoop)
@@ -442,7 +449,7 @@ class VoxelRenderer {
   }
 
   render(targetID) {
-    const {blockManager, gameState, camera, element} = this.targets[targetID]
+    const {gameState, element} = this.targets[targetID]
     const sizeOfTargetCanvas = element.getBoundingClientRect();
     const targetedWidth = sizeOfTargetCanvas.width * this.pixelRatio
     const targetedHeight = sizeOfTargetCanvas.height * this.pixelRatio
@@ -456,7 +463,7 @@ class VoxelRenderer {
       color: [0, 0, 0, 0],
       depth: 1
     })
-    this.drawCommand({blockManager, gameState, camera, fragCoordOffset: [0,0]})
+    this.drawCommand({gameState, fragCoordOffset: [0,0]})
     if (this.canvas != element) {
       const targetContext = element.getContext("2d")
       targetContext.drawImage(this.canvas, 0, 0)
@@ -471,19 +478,20 @@ class VoxelEditor extends React.Component {
     super(props)
     this.canvasRef = React.createRef()
     this.containerRef = React.createRef()
-    this.gameState = new GameState()
+
+    const worldSize = new Vector3(17, 17, 17)
+    this.camera = new PerspectiveCamera(95, 1.0, 0.1, 1000)
+    this.camera.position.set(worldSize.x/2, 10, 0)
+    this.camera.lookAt(worldSize.clone().divideScalar(2))
+
+    var blocks = (new WorldGenerator({worldSize})).worldWithPlate().blocks
+
+    this.gameState = new GameState({blocks, camera:this.camera})
   }
 
   componentDidMount() {
-    // Initialize blocks
-    const worldSize = [17, 17, 17] //# blocks makes no diff when staring off into void
-    this.blockManager = new BlockManager(worldSize)
 
-
-    this.camera = new PerspectiveCamera(95, 1.0, 0.1, 1000)
-    this.controls = new FlyControls(this.camera, this.canvasRef.current, this.blockManager, this.gameState)
-    this.camera.position.set(worldSize[0]/2.0, 10, 0)
-    this.camera.lookAt(new Vector3(worldSize[0]/2.0, 0, worldSize[2]/2.0))
+    this.controls = new FlyControls({gameState: this.gameState, domElement: this.canvasRef.current})
 
     this.resizeCamera()
     this.listeners = []
@@ -494,9 +502,9 @@ class VoxelEditor extends React.Component {
     this.stats.showPanel(0);
     this.containerRef.current.appendChild(this.stats.dom)
 
-    this.voxelRenderer = new VoxelRenderer({canvas: this.canvasRef.current, worldSize})
+    this.voxelRenderer = new VoxelRenderer({canvas: this.canvasRef.current, worldSize: this.gameState.worldSize})
     // this.voxelRenderer = new VoxelRenderer({worldSize, topBorderRadius: 14})
-    this.renderTargetID = this.voxelRenderer.addTarget({blockManager: this.blockManager, gameState: this.gameState, camera: this.camera, element: this.canvasRef.current})
+    this.renderTargetID = this.voxelRenderer.addTarget({gameState: this.gameState, element: this.canvasRef.current})
 
     var tick = timestamp => {
       this.stats.begin()
@@ -546,6 +554,27 @@ class VoxelEditor extends React.Component {
   }
 }
 
+class WorldGenerator {
+  constructor({worldSize}) {
+    const worldShape = [worldSize.x, worldSize.y, worldSize.z, 4]
+    const numBlocks = worldShape.reduce((a, b) => a*b, 1)
+    this.blocks = ndarray(new Uint8Array(numBlocks), worldShape)
+    return this
+  }
+
+  worldWithPlate() {
+    var bottomSlice = this.blocks.lo(0, 0, 0, 3).hi(this.blocks.shape[0], 1, this.blocks.shape[2], 1)
+    np.assigns(bottomSlice, 1)
+
+    for (var z = 0; z < this.blocks.shape[2]; z++) {
+      this.blocks.set(1, 1, z, 3, z)
+    }
+
+    return this
+  }
+
+}
+
 class GameState {
 
   // modified Island Joy 16: kerrielake
@@ -568,8 +597,63 @@ class GameState {
     {id:15,name: "rock", hex: "#9b9c82"},
   ]
 
-  constructor() {
+  constructor(options) {
     this.selectedBlockColor = 1
+    this.blocks = options.blocks
+
+    this.camera = options.camera || new PerspectiveCamera(95, 1.0, 0.1, 1000)
+    this.position = this.camera.position
+    this.blocks = options.blocks
+    this.worldSize = new Vector3(...options.blocks.shape.slice(0, 3))
+  }
+
+  blockExists(pos) {
+    if (!this.withinWorldBounds(pos)) {
+      return false
+    }
+    let exists = this.blocks.get(pos.x, pos.y, pos.z, 3) != 0
+    return exists
+  }
+
+  addBlock(pos, id) {
+    this.blocks.set(pos.x, pos.y, pos.z, 3, id)
+  }
+
+  removeBlock(pos, id) {
+    this.blocks.set(pos.x, pos.y, pos.z, 3, 0)
+  }
+
+  toggleBlockOutline(pos, status) {
+    this.blocks.set(pos.x, pos.y, pos.z, 0, status ? 1 : 0)
+  }
+
+  withinWorldBounds(pos) {
+    var within = true
+    within = within && (pos.x < this.worldSize.x) && (pos.x >= 0)
+    within = within && (pos.y < this.worldSize.y) && (pos.y >= 0)
+    within = within && (pos.z < this.worldSize.z) && (pos.z >= 0)
+    return within
+  }
+
+  // normalize dirVec
+  raymarchToBlock (posVec, dirVec, maxDist) {
+    var fract = n => n - Math.floor(n)
+    var rayPos = posVec.clone()
+    var t = 0
+    while(t < maxDist) {
+      var blockPos = rayPos.clone().floor()
+      if (this.blockExists(blockPos)) {
+        var hitPos = rayPos
+        return [blockPos, hitPos]
+      }
+      var timeToPlaneX = (dirVec.x > 0) ? (1 - fract(rayPos.x)) : (fract(rayPos.x) / Math.abs(dirVec.x))
+      var timeToPlaneY = (dirVec.y > 0) ? (1 - fract(rayPos.y)) : (fract(rayPos.y) / Math.abs(dirVec.y))
+      var timeToPlaneZ = (dirVec.z > 0) ? (1 - fract(rayPos.z)) : (fract(rayPos.z) / Math.abs(dirVec.z))
+      var deltaT = 0.00001 + Math.min(timeToPlaneX, timeToPlaneY, timeToPlaneZ)
+      t += deltaT
+      rayPos.add(dirVec.clone().multiplyScalar(deltaT))
+    }
+    return null
   }
 }
 
@@ -640,87 +724,12 @@ class GameControlPanel extends React.Component {
 
 }
 
-class BlockManager {
-
-  constructor(worldSize) {
-    this.worldSize = worldSize
-    this.blocks = ndarray(new Uint8Array(4*worldSize[0]*worldSize[1]*worldSize[2]), [...worldSize, 4])
-    for (var i =0; i < worldSize[0]; i++) {
-      for(var j=0; j < worldSize[1]; j++) {
-        for(var k=0; k < worldSize[2]; k++) {
-          if (j == 1 && i == 1) {
-            this.blocks.set(i, j, k, 3, k + 1)
-          }
-          if (Math.random() > 0.90) {
-            // this.blocks.set(i, j, k, 3, 1 + Math.floor(Math.random()*16))
-          }
-          // let color = randomColor({format:"rgbArray"})
-          if (j == 0) {
-            this.blocks.set(i, j, k, 3, 1)
-          }
-        }
-      }
-    }
-    this.data = this.blocks.data
-  }
-
-  blockExists(pos) {
-    if (!this.withinWorldBounds(pos)) {
-      return false
-    }
-    let exists = this.blocks.get(pos.x, pos.y, pos.z, 3) != 0
-    return exists
-  }
-
-  addBlock(pos, id) {
-    this.blocks.set(pos.x, pos.y, pos.z, 3, id)
-  }
-
-  removeBlock(pos, id) {
-    this.blocks.set(pos.x, pos.y, pos.z, 3, 0)
-  }
-
-  toggleBlockOutline(pos, status) {
-    this.blocks.set(pos.x, pos.y, pos.z, 0, status ? 1 : 0)
-  }
-
-  withinWorldBounds(pos) {
-    var within = true
-    within = within && (pos.x < this.worldSize[0]) && (pos.x >= 0)
-    within = within && (pos.y < this.worldSize[1]) && (pos.y >= 0)
-    within = within && (pos.z < this.worldSize[2]) && (pos.z >= 0)
-    return within
-  }
-
-  // normalize dirVec
-  raymarchToBlock (posVec, dirVec, maxDist) {
-    var fract = n => n - Math.floor(n)
-    var rayPos = posVec.clone()
-    var t = 0
-    while(t < maxDist) {
-      var blockPos = rayPos.clone().floor()
-      if (this.blockExists(blockPos)) {
-        var hitPos = rayPos
-        return [blockPos, hitPos]
-      }
-      var timeToPlaneX = (dirVec.x > 0) ? (1 - fract(rayPos.x)) : (fract(rayPos.x) / Math.abs(dirVec.x))
-      var timeToPlaneY = (dirVec.y > 0) ? (1 - fract(rayPos.y)) : (fract(rayPos.y) / Math.abs(dirVec.y))
-      var timeToPlaneZ = (dirVec.z > 0) ? (1 - fract(rayPos.z)) : (fract(rayPos.z) / Math.abs(dirVec.z))
-      var deltaT = 0.00001 + Math.min(timeToPlaneX, timeToPlaneY, timeToPlaneZ)
-      t += deltaT
-      rayPos.add(dirVec.clone().multiplyScalar(deltaT))
-    }
-    return null
-  }
-}
 
 class FlyControls {
 
-  constructor(camera, domElement, blockManager, gameState) {
-    this.camera = camera
-    this.domElement = domElement
-    this.blockManager = blockManager
-    this.gameState = gameState
+  constructor(options) {
+    this.gameState = options.gameState
+    this.domElement = options.domElement
 
     this.listeners = []
     this.addEventListener(window, "keydown", e => {
@@ -731,7 +740,8 @@ class FlyControls {
     this.addEventListener(window, "keyup", e => {
       this.capturingMouseMovement && this.updateKeystates(e.key, false)
     })
-    this.addEventListener(domElement, "mousedown", e => {
+    this.addEventListener(this.domElement, "mousedown", e => {
+      e.preventDefault()
       if (e.which == 1) { // left click
         if (!this.capturingMouseMovement) {
           this.domElement.requestPointerLock()
@@ -742,6 +752,9 @@ class FlyControls {
           this.clickBuffer.rightClick += 1
       }
     })
+    this.addEventListener(this.domElement, "contextmenu", e => {
+      this.capturingMouseMovement && e.preventDefault()
+    })
     this.addEventListener(document, 'pointerlockchange', () => {
       if (!(document.pointerLockElement == this.domElement)) {
         this.capturingMouseMovement = false
@@ -750,9 +763,9 @@ class FlyControls {
         this.capturingMouseMovement = true
       }
     });
-    this.addEventListener(domElement,"mouseup", e => {
+    this.addEventListener(this.domElement,"mouseup", e => {
     })
-    this.addEventListener(domElement, "mousemove", e => this.capturingMouseMovement && this.updateMouseBuffer(e.movementX, e.movementY))
+    this.addEventListener(this.domElement, "mousemove", e => this.capturingMouseMovement && this.updateMouseBuffer(e.movementX, e.movementY))
 
     this.keyState = {}
     this.mouseMoveBuffer = {x: 0, y: 0}
@@ -858,10 +871,10 @@ class FlyControls {
         for (var k=0; k < zLocations.length; k++) {
 
           var possibleBlock = new Vector3(xLocations[i], yLocations[j], zLocations[k])
-          var isWithinBounds = possibleBlock.clone().clamp(new Vector3(0,0,0), (new Vector3(...this.blockManager.blocks.shape)).subScalar(1)).equals(possibleBlock)
+          var isWithinBounds = possibleBlock.clone().clamp(new Vector3(0,0,0), (new Vector3(...this.gameState.blocks.shape)).subScalar(1)).equals(possibleBlock)
           if (isWithinBounds) {
             // var isBlock = this.blocks.get(xLocations[i], yLocations[j], zLocations[k], 3) != 0
-            var isBlock = this.blockManager.blockExists(possibleBlock)
+            var isBlock = this.gameState.blockExists(possibleBlock)
             if (isBlock) {
               var blockBox = new Box3(possibleBlock.clone(), possibleBlock.clone().addScalar(1))
               var isCollision = playerBox.intersectsBox(blockBox)
@@ -895,12 +908,39 @@ class FlyControls {
     }
   }
 
-  externalTick(timeDelta) {
-    this.onNextTick && this.onNextTick()
-    this.onNextTick = null
+  interactionTick(cameraDirection) {
+    var raymarchResult = this.gameState.raymarchToBlock(this.gameState.position, cameraDirection, 5)
+    if (raymarchResult) {
+      var [blockPos, hitPos] = raymarchResult
+      this.gameState.toggleBlockOutline(blockPos, true)
+      this.onNextTick = () => this.gameState.toggleBlockOutline(blockPos, false)
+    }
 
-    var cameraDirection = new Vector3()
-    this.camera.getWorldDirection(cameraDirection)
+    if (this.clickBuffer.rightClick > 0) {
+      if (raymarchResult) {
+        var [blockPos, hitPos] = raymarchResult
+        var [normal, dim] = this.blockNormalAtLocation(blockPos, hitPos)
+        var newBlockPos = normal.add(blockPos)
+        for (var i = 0; i< this.clickBuffer.rightClick; i++) {
+          if (!this.playerCollidesWithCube(newBlockPos, this.gameState.position)) {
+            this.gameState.addBlock(newBlockPos, this.gameState.selectedBlockColor)
+          }
+        }
+      }
+      this.clickBuffer.rightClick = 0
+    } else if (this.clickBuffer.click > 0) {
+      for (var i = 0; i< this.clickBuffer.click; i++) {
+        var raymarchResult = this.gameState.raymarchToBlock(this.gameState.position, cameraDirection, 5)
+        if (raymarchResult) {
+          var [blockPos, hitPos] = raymarchResult
+          this.gameState.removeBlock(blockPos)
+        }
+      }
+      this.clickBuffer.click = 0
+    }
+  }
+
+  moveLookTick(cameraDirection, timeDelta) {
     var forceVector = new Vector3(0, 0, 0)
 
     if ("w" in this.keyState) {
@@ -933,12 +973,12 @@ class FlyControls {
 
     var candidateVelocity = this.velocity.clone().add(forceVector)
     candidateVelocity.clampLength(0, this.maxVelocity) // convenient
-    var candidatePosition = this.camera.position.clone().add(candidateVelocity)
+    var candidatePosition = this.gameState.position.clone().add(candidateVelocity)
 
     this.checkCollisionUpdateVel(candidatePosition, candidateVelocity)
     this.velocity = candidateVelocity
-    var newPosition = this.camera.position.clone().add(candidateVelocity)
-    this.camera.position.set(newPosition.x, newPosition.y, newPosition.z)
+    var newPosition = this.gameState.position.clone().add(candidateVelocity)
+    this.gameState.position.set(newPosition.x, newPosition.y, newPosition.z)
 
     // Camera rotation
     // Can move head more than 90 deg if move camera quickly
@@ -947,50 +987,55 @@ class FlyControls {
     const minAngle = 0.2
     var tiltDir = Math.sign(this.mouseMoveBuffer.y)
     if ((angleToStraightUpDown < minAngle && tiltDir == 1) || (angleToStraightUpDown > (Math.PI - minAngle) && tiltDir == -1) || (angleToStraightUpDown > minAngle && angleToStraightUpDown < (Math.PI - minAngle))) {
-      this.camera.rotateOnWorldAxis(cameraCrossVec, this.rotationSensitivty * this.mouseMoveBuffer.y)
+      this.gameState.camera.rotateOnWorldAxis(cameraCrossVec, this.rotationSensitivty * this.mouseMoveBuffer.y)
     }
-    this.camera.rotateOnWorldAxis(new Vector3(0, 1, 0), -this.rotationSensitivty * this.mouseMoveBuffer.x)
+    this.gameState.camera.rotateOnWorldAxis(new Vector3(0, 1, 0), -this.rotationSensitivty * this.mouseMoveBuffer.x)
 
     this.mouseMoveBuffer = {x: 0, y: 0}
 
-
-    // interaction with blocks
-    var raymarchResult = this.blockManager.raymarchToBlock(this.camera.position, cameraDirection, 5)
-    if (raymarchResult) {
-      var [blockPos, hitPos] = raymarchResult
-      this.blockManager.toggleBlockOutline(blockPos, true)
-      this.onNextTick = () => this.blockManager.toggleBlockOutline(blockPos, false)
-    }
-
-    if (this.clickBuffer.rightClick > 0) {
-      if (raymarchResult) {
-        var [blockPos, hitPos] = raymarchResult
-        var [normal, dim] = this.blockNormalAtLocation(blockPos, hitPos)
-        var newBlockPos = normal.add(blockPos)
-        for (var i = 0; i< this.clickBuffer.rightClick; i++) {
-          if (!this.playerCollidesWithCube(newBlockPos, this.camera.position)) {
-            this.blockManager.addBlock(newBlockPos, this.gameState.selectedBlockColor)
-          }
-        }
-      }
-      this.clickBuffer.rightClick = 0
-    } else if (this.clickBuffer.click > 0) {
-      for (var i = 0; i< this.clickBuffer.click; i++) {
-        var raymarchResult = this.blockManager.raymarchToBlock(this.camera.position, cameraDirection, 5)
-        if (raymarchResult) {
-          var [blockPos, hitPos] = raymarchResult
-          this.blockManager.removeBlock(blockPos)
-        }
-      }
-      this.clickBuffer.click = 0
-    }
   }
+
+  externalTick(timeDelta) {
+    this.onNextTick && this.onNextTick()
+    this.onNextTick = null
+
+    var cameraDirection = new Vector3()
+    this.gameState.camera.getWorldDirection(cameraDirection)
+
+    // moving, looking, colliding
+    this.moveLookTick(cameraDirection, timeDelta)
+
+    // adding blocks, removing blocks, block highlight
+    this.interactionTick(cameraDirection)
+  }
+}
+
+class AutomaticOrbiter {
+  constructor(camera, options) {
+    this.camera = camera
+
+    this.period = options.period
+    this.height = options.height
+    this.radius = options.radius
+    this.lookAtPos = options.lookAtPos
+    this.center = options.center
+  }
+
+  setRotationToTime(time) {
+    var rotationTime = 2 * (Math.PI/this.period) * time
+    var newPos = (new Vector3(Math.cos(rotationTime)*this.radius, this.height, Math.sin(rotationTime)*this.radius)).add(this.center)
+    this.camera.position.set(newPos.x, newPos.y, newPos.z)
+    this.camera.lookAt(this.lookAtPos)
+    this.camera.updateWorldMatrix()
+  }
+
 }
 
 module.exports = {
   VoxelEditor,
   VoxelRenderer,
   GameState,
-  BlockManager,
   FlyControls,
+  AutomaticOrbiter,
+  WorldGenerator
 }
