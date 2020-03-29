@@ -4,7 +4,8 @@ var ReactDOM = require("react-dom")
 import { Router, Link as RouterLink, navigate } from "@reach/router"
 
 import {VoxelEditor, VoxelRenderer, FlyControls, BlockManager, GameState} from "./voxels.jsx"
-import * as THREE from 'three';
+import {Vector3, PerspectiveCamera} from 'three';
+import {ApparatusGenerator} from "./procedural.jsx"
 
 const CopyToClipboard = require('clipboard-copy')
 import {Client as Styletron} from 'styletron-engine-atomic';
@@ -63,7 +64,7 @@ class Datastore {
   listingCache = {}
   userCache = {}
   imageCache = {}
-
+  apparatusGenerator = new ApparatusGenerator()
 
   hashCode(str) {
     return Array.from(String(str))
@@ -93,6 +94,10 @@ class Datastore {
 
     this.imageCache[id] = pixels
     return pixels
+  }
+
+  generateRandomApparatus(targetCanvas, seed) {
+    this.apparatusGenerator.generateAndCopy({targetCanvas, seed})
   }
 
   getListingDataById(id) {
@@ -169,7 +174,7 @@ class Listings extends React.Component {
   }
 
   render() {
-    var cards = [...Array(20).keys()].map(idx => {
+    var cards = [...Array(10).keys()].map(idx => {
       return (
         <div style={{marginRight: this.sideMargins, marginBottom: this.topBottomMargins}} key={idx} >
           <ListingCard id={idx} voxelRenderer={this.voxelRenderer} />
@@ -213,14 +218,14 @@ class ListingCard extends React.Component {
     this.gameState = new GameState()
     this.blockManager = new BlockManager(worldSize)
 
-    const lookAtPos = new THREE.Vector3(worldSize[0]/2.0, 10, worldSize[2]/2.0)
+    const lookAtPos = new Vector3(worldSize[0]/2.0, 10, worldSize[2]/2.0)
     const orbitCenter = lookAtPos.clone()
     const orbitHeight = 8
     const orbitPeriod = 10.0 //seconds
     const orbitRadius = 1.2 * worldSize[0]/2.0
 
-    this.camera = new THREE.PerspectiveCamera(95, 1.0, 0.1, 1000)
-    const startPos = orbitCenter.clone().add(new THREE.Vector3(orbitRadius, orbitHeight, 0))
+    this.camera = new PerspectiveCamera(95, 1.0, 0.1, 1000)
+    const startPos = orbitCenter.clone().add(new Vector3(orbitRadius, orbitHeight, 0))
     this.camera.position.set(startPos.x, startPos.y, startPos.z)
     // not sure why have to update world matrix -- maybe three.js renderer usually does automatically
     this.camera.lookAt(lookAtPos)
@@ -233,32 +238,21 @@ class ListingCard extends React.Component {
     var rotationTime = 0
     this.canvasRef.current.addEventListener("mouseover", e => {
       var lastTimestamp = window.performance.now()
-      const period = 10.0 // seconds
       var tick = timestamp => {
-        var elapsed = 2 * (Math.PI/period) * (timestamp - lastTimestamp) / 1000
-        lastTimestamp = timestamp
-        rotationTime += elapsed
-        var newPos = (new THREE.Vector3(Math.cos(rotationTime)*orbitRadius, orbitHeight, Math.sin(rotationTime)*orbitRadius)).add(orbitCenter)
+        var newPos = (new Vector3(Math.cos(rotationTime)*orbitRadius, orbitHeight, Math.sin(rotationTime)*orbitRadius)).add(orbitCenter)
         this.camera.position.set(newPos.x, newPos.y, newPos.z)
         this.camera.lookAt(lookAtPos)
         this.props.voxelRenderer.renderQueue.unshift(this.renderID)
         animationFrameRequestID = window.requestAnimationFrame(tick)
+        var elapsed = 2 * (Math.PI/orbitPeriod) * (timestamp - lastTimestamp) / 1000
+        lastTimestamp = timestamp
+        rotationTime += elapsed
       }
       animationFrameRequestID = window.requestAnimationFrame(tick)
     })
     this.canvasRef.current.addEventListener("mouseleave", e => {
       window.cancelAnimationFrame(animationFrameRequestID)
     })
-
-
-    // random blurred image data
-    // const pixels = datastore.generateRandomBlurredImageData(this.props.id, this.imageSize, this.imageSize)
-    // const canvas = this.state.canvasRef.current
-    // const ctx = canvas.getContext("2d");
-    // const { width, height } = canvas.getBoundingClientRect()
-    // const imageData = ctx.createImageData(width, height);
-    // imageData.data.set(pixels);
-    // ctx.putImageData(imageData, 0, 0);
   }
 
   componentWillUnmount() {
@@ -294,6 +288,25 @@ class ListingCard extends React.Component {
 class UserAvatar extends React.Component {
   constructor(props) {
     super(props)
+    this.canvasRef = React.createRef()
+  }
+
+  componentDidMount() {
+    var {width, height} = this.canvasRef.current.getBoundingClientRect()
+    this.canvasRef.current.width = width * window.devicePixelRatio
+    this.canvasRef.current.height = height * window.devicePixelRatio
+    datastore.generateRandomApparatus(this.canvasRef.current, this.props.id)
+    // random blurred image data
+    // const sizeX = this.props.size // * window.devicePixelRatio
+    // const sizeY = this.props.size //* window.devicePixelRatio
+    // const pixels = datastore.generateRandomBlurredImageData(this.props.id, sizeX, sizeY)
+    // const canvas = this.canvasRef.current
+    // canvas.width = sizeX
+    // canvas.height = sizeY
+    // const ctx = canvas.getContext("2d");
+    // const imageData = ctx.createImageData(sizeX, sizeY);
+    // imageData.data.set(pixels);
+    // ctx.putImageData(imageData, 0, 0);
   }
 
   render() {
@@ -305,7 +318,7 @@ class UserAvatar extends React.Component {
 
     return (
       <div onClick={onClick} style={{height: this.props.size+"px", width: this.props.size+"px", borderRadius: this.props.size/2.0+"px", backgroundColor: "#eee", cursor: "pointer", overflow: "hidden"}}>
-        <img src={avatarURL} style={{height: "100%", width: "100%"}}></img>
+        <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
       </div>
     )
   }

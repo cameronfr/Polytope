@@ -12,6 +12,7 @@
     "faker": "^4.1.0",
     "gl-mat4": "^1.2.0",
     "ndarray": "^1.0.19",
+    "p5": "^1.0.0",
     "random-seed": "^0.3.0",
     "randomcolor": "^0.5.4",
     "react": "15.x || 16.x || 16.4.0-alpha.0911da3",
@@ -22,7 +23,7 @@
     "styletron-engine-atomic": "^1.4.6",
     "styletron-react": "^5.2.7",
     "three": "^0.114.0",
-    "three-fly-controls": "^2.0.0",
+    "two.js": "^0.7.0-stable.1",
     "username-generator": "^1.1.0"
   },
   "devDependencies": {
