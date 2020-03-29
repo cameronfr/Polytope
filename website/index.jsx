@@ -110,7 +110,10 @@ class Datastore {
     const ownerId = id
 
     const worldSize = new Vector3(17, 17, 17)
-    const blocks = (new WorldGenerator({worldSize})).worldWithPlate().randomRectangularPrism().blocks
+    var gen = (new WorldGenerator({worldSize})).worldWithPlate()
+    var range = [...Array(Math.floor(Math.random()*5)+3)]
+    range.forEach(() => gen.randomRectangularPrism())
+    const blocks = gen.blocks
 
     const data = {price, name, ownerId, blocks}
     this.listingCache[id] = data
@@ -278,7 +281,7 @@ class ListingCard extends React.Component {
 
     return (
       <RouterLink to={`/item/${this.props.id}`}>
-      <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", cursor: "pointer"}}>
+      <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", cursor: "pointer", backfaceVisibility: "hidden", position: "relative", zIndex: "1"}}>
         <div style={{height: this.imageSize+"px", width: this.imageSize+"px", position: "relative", backgroundColor: "eee"}}>
           <div style={{position: "absolute", right: "10px", top: "10px"}}>
             <UserAvatar id={this.props.id} size={35} />
@@ -363,7 +366,7 @@ class Listing extends React.Component {
   updateBlockDisplay() {
     const {blocks} = datastore.getListingDataById(this.props.id)
     var gameState = new GameState({blocks})
-    var flyControls = new FlyControls({gameState, domElement: this.canvasRef.current})
+    var flyControls = new FlyControls({gameState, domElement: this.canvasRef.current,interactionDisabled: true})
 
     // set initial position
     const lookAtPos = new Vector3(gameState.worldSize.x/2, 10, gameState.worldSize.y/2)
@@ -397,7 +400,7 @@ class Listing extends React.Component {
     return (
         <div style={{display: "flex", justifyContent: "center", alignItems: "center", padding: "20px"}}>
           <div style={{display: "flex", flexWrap: "wrap"}}>
-            <div style={{width: this.viewAreaSize+"px", height: this.viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", margin: this.blockMargins+"px"}}>
+            <div style={{width: this.viewAreaSize+"px", height: this.viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", margin: this.blockMargins+"px", position: "relative", zIndex: "1"}}>
               <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
             </div>
             <div style={{width: this.viewAreaSize+"px", maxWidth: this.viewAreaSize + "px", display: "flex", flexDirection: "column", margin: this.blockMargins+"px"}}>

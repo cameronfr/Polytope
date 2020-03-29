@@ -1,4 +1,5 @@
 //Sphere optimization possible todo: https://medium.com/@calebleak/raymarching-voxel-rendering-58018201d9d6
+//TODO: regl on context loss so stuff doesn't randomly blank
 
 var React = require("react")
 var ReactDOM = require("react-dom")
@@ -103,45 +104,44 @@ class VoxelRenderer {
       }
 
       vec4 blockValueAtIndex(vec3 index) {
-        // if (clamp(index, 0.0, float(worldSize) - 1.0) == index) {
         if (clamp(index, vec3(0, 0, 0), worldSize - 1.0) == index) {
           vec2 blockIdxs = vec2(index.x,index.y*worldSize.y + index.z);
           vec4 blockValue = texture2DLodEXT(blocks, blockIdxs/vec2(worldSize.x, worldSize.y*worldSize.z), 0.0);
           return blockValue;
         } else {
-           return vec4(0, 0, 0, 0);
+           return vec4(0, 0, 0, -1); //so a=-1 means out of bounds, a=0 means blank block
          }
       }
 
       // Slower
-      vec4 raymarchToBlockNoBranching(vec3 startPos, vec3 rayDir, out vec3 blockIdx, out vec3 hitPos) {
-        vec3 edge;
-        vec4 blockValue = vec4(0, 0, 0, 0);
-        vec3 outRayPos;
-
-        const float eps = 0.0001;
-        float t = 0.0;
-        for(int i=0; i<maxRaymarchSteps; i++) {
-          vec3 rayPos = startPos + rayDir * t;
-
-          bool inWorld = clamp(rayPos, 0.0, float(worldSize) - 0.0000000001) == rayPos;
-          vec3 possibleEdge = vec3(floor(rayPos.x), floor(rayPos.y), floor(rayPos.z));
-          vec4 possibleBlock = blockValueAtIndex(possibleEdge);
-          float shouldUpdateOutputs = float(inWorld && possibleBlock.a != 0.0 && blockValue.a == 0.0);
-
-          edge = shouldUpdateOutputs * possibleEdge + (1.0-shouldUpdateOutputs) * edge;
-          blockValue = shouldUpdateOutputs * possibleBlock + (1.0-shouldUpdateOutputs) * blockValue;
-          outRayPos = shouldUpdateOutputs * rayPos + (1.0-shouldUpdateOutputs) * outRayPos;
-
-          vec3 distanceToPlanes = step(vec3(0, 0, 0), rayDir)*(1.0 - fract(rayPos)) + (1.0 - step(vec3(0, 0, 0), rayDir))*(fract(rayPos));
-          vec3 tDeltasToPlanes = distanceToPlanes / abs(rayDir);
-          t += eps + min(tDeltasToPlanes.x, min(tDeltasToPlanes.y, tDeltasToPlanes.z));
-        }
-
-        hitPos = outRayPos;
-        blockIdx = edge;
-        return blockValue;
-      }
+      // vec4 raymarchToBlockNoBranching(vec3 startPos, vec3 rayDir, out vec3 blockIdx, out vec3 hitPos) {
+      //   vec3 edge;
+      //   vec4 blockValue = vec4(0, 0, 0, 0);
+      //   vec3 outRayPos;
+      //
+      //   const float eps = 0.0001;
+      //   float t = 0.0;
+      //   for(int i=0; i<maxRaymarchSteps; i++) {
+      //     vec3 rayPos = startPos + rayDir * t;
+      //
+      //     bool inWorld = clamp(rayPos, 0.0, float(worldSize) - 0.0000000001) == rayPos;
+      //     vec3 possibleEdge = vec3(floor(rayPos.x), floor(rayPos.y), floor(rayPos.z));
+      //     vec4 possibleBlock = blockValueAtIndex(possibleEdge);
+      //     float shouldUpdateOutputs = float(inWorld && possibleBlock.a != 0.0 && blockValue.a == 0.0);
+      //
+      //     edge = shouldUpdateOutputs * possibleEdge + (1.0-shouldUpdateOutputs) * edge;
+      //     blockValue = shouldUpdateOutputs * possibleBlock + (1.0-shouldUpdateOutputs) * blockValue;
+      //     outRayPos = shouldUpdateOutputs * rayPos + (1.0-shouldUpdateOutputs) * outRayPos;
+      //
+      //     vec3 distanceToPlanes = step(vec3(0, 0, 0), rayDir)*(1.0 - fract(rayPos)) + (1.0 - step(vec3(0, 0, 0), rayDir))*(fract(rayPos));
+      //     vec3 tDeltasToPlanes = distanceToPlanes / abs(rayDir);
+      //     t += eps + min(tDeltasToPlanes.x, min(tDeltasToPlanes.y, tDeltasToPlanes.z));
+      //   }
+      //
+      //   hitPos = outRayPos;
+      //   blockIdx = edge;
+      //   return blockValue;
+      // }
 
       vec4 raymarchToBlock(vec3 startPos, vec3 rayDir, out vec3 blockIdx, out vec3 hitPos) {
         // const float eps = 0.0001;
@@ -152,8 +152,10 @@ class VoxelRenderer {
 
           vec3 edge = vec3(floor(rayPos.x), floor(rayPos.y), floor(rayPos.z));
           vec4 blockValue = blockValueAtIndex(edge);
+          bool isNonBlankBlock = blockValue.a > 0.0;
+          // bool isOutOfBoundsBlock = blockValue.a == -1.0;
 
-          if (blockValue.a != 0.0) {
+          if (isNonBlankBlock) {
             blockIdx = edge;
             hitPos = rayPos;
             return blockValue;
@@ -162,6 +164,7 @@ class VoxelRenderer {
           // round down if negative rayDir, round up if positive rayDir
           // need to get distance in direction of ray so sign matters
           vec3 distanceToPlanes = step(vec3(0, 0, 0), rayDir)*(1.0 - fract(rayPos)) + (1.0 - step(vec3(0, 0, 0), rayDir))*(fract(rayPos));
+
           vec3 tDeltasToPlanes = distanceToPlanes / abs(rayDir);
           t += eps + min(tDeltasToPlanes.x, min(tDeltasToPlanes.y, tDeltasToPlanes.z));
         }
@@ -230,7 +233,7 @@ class VoxelRenderer {
         for (int i=0; i<4; i++) {
           vec3 adjacentBlockPos = blockIdx + hitNorm + sideDirs[i];
           vec4 adjacentBlockVal = blockValueAtIndex(adjacentBlockPos);
-          if (adjacentBlockVal.a != 0.0) {
+          if (adjacentBlockVal.a > 0.0) {
             float dist = length(abs(sideDirs[i]) * abs(adjacentBlockPos + vec3(0.5, 0.5, 0.5) - hitPos)) - 0.5;
             avgDist = opSmoothUnion(avgDist, dist, 0.2);
           }
@@ -239,7 +242,7 @@ class VoxelRenderer {
         for (int i=0; i<4; i++) {
           vec3 adjacentBlockPos = blockIdx + hitNorm + cornerDirs[i];
           vec4 adjacentBlockVal = blockValueAtIndex(adjacentBlockPos);
-          if (adjacentBlockVal.a != 0.0) {
+          if (adjacentBlockVal.a > 0.0) {
             vec3 cornerPos = adjacentBlockPos + vec3(0.5, 0.5, 0.5) - cornerDirs[i] * 0.5;
             float dist = length(abs(cornerDirs[i]) * abs(cornerPos - hitPos));
             avgDist = min(avgDist, dist);
@@ -540,7 +543,7 @@ class VoxelEditor extends React.Component {
       <div style={{width: "100%", height:"100%"}}>
         <div style={{display: "flex", flexDirection: "row", padding: THEME.sizing.scale1000, boxSizing: "border-box", height: "100%"}}>
           <div ref={this.containerRef} style={{flexGrow: "1", display: "flex", flexDirection: "column"}}>
-            <div style={{boxShadow: "0px 1px 2px #ccc", border: "1px solid #fff", borderRadius: "14px", overflow: "hidden", flexGrow: "1"}}>
+            <div style={{boxShadow: "0px 1px 2px #ccc", border: "1px solid #fff", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "1", flexGrow: "1"}}>
               <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
             </div>
           </div>
@@ -593,8 +596,6 @@ class WorldGenerator {
     np.divseq(startCornerPos, 2)
     np.flooreq(startCornerPos)
     startCornerPos.set(1, 1) //make it rest on the floor plate
-
-    this.colorStripe()
 
     var randomColor = Math.floor(Math.random() * 16) * 1
     var prismSlice = this.blocks.lo(...startCornerPos.data, 3).hi(...widths.data, 1)
@@ -734,11 +735,11 @@ class GameControlPanel extends React.Component {
     return (
       <div style={{display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr"}}>
         {this.gameState.blockColors.map(color => {
-          var isSelected = this.state.selectedBlockColor == color.id + 1
+          var isSelected = this.state.selectedBlockColor == color.id
           var border = isSelected ? "2px solid #00C5CD" : "1px solid #000"
           var size = isSelected ? 28 : 30 //not sure why 30px vs 31px results in no visible size change.
           var onClick = e => {
-            this.setSelectedBlockColor(color.id + 1)
+            this.setSelectedBlockColor(color.id)
           }
           var div = <div
             style={{margin: THEME.sizing.scale400, backgroundColor: color.hex, height: `${size}px`, width: `${size}px`, borderRadius: "5px", cursor: "pointer", border}}
@@ -760,6 +761,7 @@ class FlyControls {
   constructor(options) {
     this.gameState = options.gameState
     this.domElement = options.domElement
+    this.interactionEnabled = !options.interactionDisabled
 
     this.listeners = []
     this.addEventListener(window, "keydown", e => {
@@ -1036,7 +1038,7 @@ class FlyControls {
     this.moveLookTick(cameraDirection, timeDelta)
 
     // adding blocks, removing blocks, block highlight
-    this.interactionTick(cameraDirection)
+    this.interactionEnabled && this.interactionTick(cameraDirection)
   }
 }
 
