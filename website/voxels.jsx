@@ -1,5 +1,6 @@
 //Sphere optimization possible todo: https://medium.com/@calebleak/raymarching-voxel-rendering-58018201d9d6
 //TODO: regl on context loss so stuff doesn't randomly blank
+//TODO: if want larger worlds (e.g. 128^3), texture transfer becomes bottleneck => use .subimage to update GPU block data
 
 var React = require("react")
 var ReactDOM = require("react-dom")
@@ -57,7 +58,6 @@ class VoxelRenderer {
       #extension GL_OES_standard_derivatives : enable
 
       precision mediump float;
-      // precision highp float;
       uniform vec4 color;
       uniform sampler2D blocks;
       uniform sampler2D imageTexture;

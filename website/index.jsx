@@ -1,11 +1,19 @@
 var React = require("react")
 var ReactDOM = require("react-dom")
 import { Router, Link as RawRouterLink, navigate } from "@reach/router"
+// import "core-js/stable";
+import "regenerator-runtime/runtime";
 
+// Web3 stuff
+var Web3 = require("web3");
+
+// Voxel Stuff
 import {VoxelEditor, VoxelRenderer, FlyControls, GameState, AutomaticOrbiter, WorldGenerator} from "./voxels.jsx"
 import {Vector3, PerspectiveCamera} from 'three';
 import {ApparatusGenerator} from "./procedural.jsx"
 
+
+// Baseweb UI stuff
 const CopyToClipboard = require('clipboard-copy')
 import {Client as Styletron} from 'styletron-engine-atomic';
 import {Provider as StyletronProvider} from 'styletron-react';
@@ -15,6 +23,8 @@ import { StyledLink } from "baseui/link";
 import { Button, KIND, SIZE } from "baseui/button";
 import { Input } from "baseui/input"
 import { Search } from "baseui/icon";
+// import { Notification, KIND as NotificationKind } from "baseui/notification";
+import { toaster, ToasterContainer } from "baseui/toast";
 
 import {
   HeaderNavigation,
@@ -52,6 +62,7 @@ import {
   StyledAction
 } from "baseui/card";
 
+// Data generation stuff
 import Sentencer from "sentencer"
 import UsernameGenerator from "username-generator"
 import { decode } from "blurhash"
@@ -141,13 +152,39 @@ class App extends React.Component {
 
   constructor(props) {
     super(props)
+    this.state = {
+      web3: null, //if non null, user is "signed in"
+      userAddress: null,
+    }
+  }
+
+  componentDidMount() {
+  }
+
+  async signIn() {
+    var web3 = new Web3(window.ethereum)
+    try {
+      await window.ethereum.enable()
+      var networkType = await web3.eth.net.getNetworkType()
+      if (networkType != "main") {
+        toaster.warning(`Client on ${networkType}, please switch to Mainnet`)
+      } else {
+        var accounts = await web3.eth.getAccounts()
+        var userAddress = accounts[0]
+        this.setState({web3, userAddress})
+      }
+    } catch (error) {
+      console.log(error)
+      toaster.warning("Web3 permission was not granted")
+    }
   }
 
   render() {
     return (
       <div style={{display: "flex", flexDirection: "column", height: "100%"}}>
+        <ToasterContainer autoHideDuration={3000} />
         <div>
-          <Header/>
+          <Header signIn={() => this.signIn()} address={this.state.userAddress} />
         </div>
         <div style={{flex: "auto", position: "relative"}}>
           <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0"}}>
@@ -173,6 +210,11 @@ class Listings extends React.Component {
     super(props)
 
     this.voxelRenderer = new VoxelRenderer({pixelRatio:window.devicePixelRatio})
+    this.containerRef = React.createRef()
+  }
+
+  componentDidMount() {
+    this.containerRef.current.scrollTop = 10000
   }
 
   componentWillUnmount() {
@@ -197,15 +239,13 @@ class Listings extends React.Component {
     })
 
     return (
-      <div style={{width: "100%", height: "100%", overflow: "auto"}}>
+      <div style={{width: "100%", height: "100%", overflow: "auto", }} ref={this.containerRef}>
         <div style={{display: "flex", justifyContent: "center", alignItems: "start", flexWrap: "wrap", marginLeft: this.sideMargins, marginTop: this.topBottomMargins, maxWidth: "800px"}}>
           {cards}
           {hiddenSpacers}
         </div>
       </div>
     )
-
-
   }
 }
 
@@ -220,17 +260,18 @@ class ListingCard extends React.Component {
   }
 
   componentDidMount() {
+    if (this.props.isSpacer) {return}
     this.updateBlockDisplay()
   }
 
   componentDidUpdate() {
+    if (this.props.isSpacer) {return}
     this.cleanupBlockDisplay()
     this.updateBlockDisplay()
     //ANY prop change will cause block display to fully update. also, listeners not removed
   }
 
   updateBlockDisplay() {
-    if (this.props.isSpacer) {return}
 
     this.blockDisplayListeners = []
     var addEventListener = (obj, eventName, func) => {
@@ -301,6 +342,22 @@ class ListingCard extends React.Component {
       </RouterLink>
     )
   }
+}
+
+var AvatarAndName = props => {
+  var {labelColor, labelStyle, ownerId, name} = props
+  return (
+    <RouterLink to={`/user/${ownerId}`}>
+      <div style={{display: "flex", alignItems: "center"}}>
+        <div style={{paddingRight: "10px", paddingLeft: "10px"}}>
+          <UserAvatar size={35} id={ownerId}/>
+        </div>
+        <LabelLarge color={[labelColor]} style={labelStyle || {}}>
+          {name}
+        </LabelLarge>
+      </div>
+    </RouterLink>
+  )
 }
 
 class UserAvatar extends React.Component {
@@ -407,17 +464,12 @@ class Listing extends React.Component {
               <DisplaySmall color={["colorSecondary"]}>
                 {name}
               </DisplaySmall>
-              <div style={{display: "flex", marginTop: "10px", alignItems: "center", paddingLeft: "2px"}}>
-                <LabelLarge color={["colorSecondary"]}>
-                  {"Owned by"}
-                </LabelLarge>
-                <div style={{paddingRight: "10px", paddingLeft: "10px"}}>
-                  <UserAvatar size={35} id={ownerId}/>
+                <div style={{display: "flex", marginTop: "10px", alignItems: "center", paddingLeft: "2px"}}>
+                  <LabelLarge color={["colorSecondary"]}>
+                    {"Owned by"}
+                  </LabelLarge>
+                  <AvatarAndName ownerId={ownerId} name={owner.name} labelColor={"colorSecondary"} />
                 </div>
-                <LabelLarge color={["colorSecondary"]}>
-                  {owner.name}
-                </LabelLarge>
-              </div>
             </div>
           </div>
         </div>
@@ -453,6 +505,15 @@ class Header extends React.Component {
       </Input>)
     var onSearchSubmit = e => {
       e.preventDefault()
+    }
+
+    var profileArea
+    if (this.props.address) {
+      profileArea = <AvatarAndName ownerId={this.props.address} name={this.props.address} labelColor={"colorPrimary"} labelStyle={{maxWidth: "150px", textOverflow: "ellipsis", overflow: "hidden"}}/>
+    } else {
+      profileArea = (
+        <Button onClick={this.props.signIn}>Sign In</Button>
+      )
     }
 
     return (
@@ -492,7 +553,7 @@ class Header extends React.Component {
         </StyledNavigationList>
         <StyledNavigationList $align={ALIGN.right} style={{marginRight: "20px"}}>
           <StyledNavigationItem>
-            <Button>Sign In</Button>
+            {profileArea}
           </StyledNavigationItem>
         </StyledNavigationList>
       </HeaderNavigation>
