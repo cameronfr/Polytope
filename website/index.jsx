@@ -121,7 +121,7 @@ class Datastore {
     const ownerId = id
 
     const worldSize = new Vector3(17, 17, 17)
-    var gen = (new WorldGenerator({worldSize})).worldWithPlate()
+    var gen = (new WorldGenerator({worldSize}))//.worldWithPlate()
     var range = [...Array(Math.floor(Math.random()*5)+3)]
     range.forEach(() => gen.randomRectangularPrism())
     const blocks = gen.blocks
@@ -218,7 +218,7 @@ class Listings extends React.Component {
   }
 
   componentDidMount() {
-    this.containerRef.current.scrollTop = 10000
+    // this.containerRef.current.scrollTop = 10000
   }
 
   componentWillUnmount() {
@@ -353,7 +353,7 @@ var AvatarAndName = props => {
   return (
     <RouterLink to={`/user/${ownerId}`}>
       <div style={{display: "flex", alignItems: "center"}}>
-        <div style={{paddingRight: "10px", paddingLeft: "10px"}}>
+        <div style={{paddingRight: "10px"}}>
           <UserAvatar size={35} id={ownerId}/>
         </div>
         <LabelLarge color={[labelColor]} style={labelStyle || {}}>
@@ -472,7 +472,7 @@ class Listing extends React.Component {
                 {name}
               </DisplaySmall>
                 <div style={{display: "flex", marginTop: "10px", alignItems: "center", paddingLeft: "2px"}}>
-                  <LabelLarge color={["colorSecondary"]}>
+                  <LabelLarge color={["colorSecondary"]} style={{marginRight: "10px"}}>
                     {"Owned by"}
                   </LabelLarge>
                   <AvatarAndName ownerId={ownerId} name={owner.name} labelColor={"colorSecondary"} />
@@ -525,8 +525,8 @@ class Header extends React.Component {
 
     return (
       <HeaderNavigation style={{backgroundColor: "white"}}>
-        <StyledNavigationList $align={ALIGN.left}>
-          <StyledNavigationItem>
+        <StyledNavigationList $align={ALIGN.left} style={{marginLeft: THEME.sizing.scale1000}}>
+          <StyledNavigationItem style={{paddingLeft: "0"}}>
             <RouterLink to={"/"} >
               <DisplayMedium
                 style={{userSelect: "none", cursor: "pointer", paddingLeft: "0"}}>
@@ -558,7 +558,7 @@ class Header extends React.Component {
             </RouterLink>
           </StyledNavigationItem>
         </StyledNavigationList>
-        <StyledNavigationList $align={ALIGN.right} style={{marginRight: "20px"}}>
+        <StyledNavigationList $align={ALIGN.right} style={{marginRight: THEME.sizing.scale1000}}>
           <StyledNavigationItem>
             {profileArea}
           </StyledNavigationItem>

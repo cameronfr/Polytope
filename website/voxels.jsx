@@ -13,7 +13,7 @@ import ndarray from "ndarray"
 import mat4 from "gl-mat4"
 import np from "ndarray-ops"
 
-
+import { Button, KIND as ButtonKind, SIZE as ButtonSize } from "baseui/button";
 import {LightTheme, BaseProvider, styled} from 'baseui';
 const THEME = LightTheme
 import {
@@ -85,6 +85,7 @@ class VoxelRenderer {
       #extension GL_OES_standard_derivatives : enable
 
       precision mediump float;
+      // precision highp float;
       uniform vec4 color;
       uniform sampler2D blocks;
       uniform sampler2D imageTexture;
@@ -132,7 +133,7 @@ class VoxelRenderer {
 
       vec4 blockValueAtIndex(vec3 index) {
         if (clamp(index, vec3(0, 0, 0), worldSize - 1.0) == index) {
-          vec2 blockIdxs = vec2(index.x,index.y*worldSize.y + index.z);
+          vec2 blockIdxs = vec2(index.x,index.y*worldSize.z + index.z);
           vec4 blockValue = texture2DLodEXT(blocks, blockIdxs/vec2(worldSize.x, worldSize.y*worldSize.z), 0.0);
           return blockValue;
         } else {
@@ -171,7 +172,6 @@ class VoxelRenderer {
       // }
 
       vec4 raymarchToBlock(vec3 startPos, vec3 rayDir, out vec3 blockIdx, out vec3 hitPos) {
-        // const float eps = 0.0001;
         const float eps = 0.00001;
         float t = 0.0;
         for(int i=0; i<maxRaymarchSteps; i++) {
@@ -509,19 +509,19 @@ class VoxelEditor extends React.Component {
     this.canvasRef = React.createRef()
     this.containerRef = React.createRef()
 
-    const worldSize = new Vector3(17, 17, 17)
+    const worldSize = new Vector3(16, 17, 16)
     this.camera = new PerspectiveCamera(95, 1.0, 0.1, 1000)
-    this.camera.position.set(worldSize.x/2, 10, 0)
+    this.camera.position.set(0.01 + worldSize.x/2, 10, 0)
     this.camera.lookAt(worldSize.clone().divideScalar(2))
 
-    var blocks = (new WorldGenerator({worldSize})).worldWithPlate().blocks
+    var blocks = (new WorldGenerator({worldSize})).bottomPlate().blocks
 
     this.gameState = new GameState({blocks, camera:this.camera})
   }
 
   componentDidMount() {
 
-    this.controls = new FlyControls({gameState: this.gameState, domElement: this.canvasRef.current})
+    this.controls = new FlyControls({gameState: this.gameState, domElement: this.canvasRef.current, isDisallowedBlockPos: vector => vector.y == 0})
 
     this.resizeCamera()
     this.listeners = []
@@ -572,16 +572,15 @@ class VoxelEditor extends React.Component {
       <div style={{width: "100%", height:"100%"}}>
         <div style={{display: "flex", flexDirection: "row", padding: THEME.sizing.scale1000, boxSizing: "border-box", height: "100%"}}>
           <div ref={this.containerRef} style={{flexGrow: "1", display: "flex", flexDirection: "column", }}>
-            <div style={{boxShadow: "0px 1px 2px #ccc", border: "1px solid #fff", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "1", flexGrow: "1"}}>
+            <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "1", flexGrow: "1"}}>
               <div style={{position: "absolute", right: "10px", top: "10px"}}>
                 <ControlsHelpTooltip />
               </div>
               <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
             </div>
           </div>
-          <div style={{height: "300px",boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", padding: THEME.sizing.scale600, marginLeft: THEME.sizing.scale1000}}>
+          <div style={{flexShrink: "1", height: "100%", boxSizing: "border-box", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", padding: THEME.sizing.scale600, marginLeft: THEME.sizing.scale1000}}>
             <GameControlPanel gameState={this.gameState}/>
-            testing123
           </div>
         </div>
       </div>
@@ -590,16 +589,23 @@ class VoxelEditor extends React.Component {
 }
 
 class WorldGenerator {
-  constructor({worldSize}) {
-    const worldShape = [worldSize.x, worldSize.y, worldSize.z, 4]
-    const numBlocks = worldShape.reduce((a, b) => a*b, 1)
-    this.blocks = ndarray(new Uint8Array(numBlocks), worldShape)
+  constructor({worldSize, blocks}) {
+    if (worldSize) {
+      const worldShape = [worldSize.x, worldSize.y, worldSize.z, 4]
+      const numBlocks = worldShape.reduce((a, b) => a*b, 1)
+      this.blocks = ndarray(new Uint8Array(numBlocks), worldShape)
+    } else if (blocks) {
+      this.blocks = blocks
+    } else {
+      throw "need worldSize or blocks"
+    }
     return this
   }
 
-  worldWithPlate() {
+  bottomPlate(blockID) {
     var bottomSlice = this.blocks.lo(0, 0, 0, 3).hi(this.blocks.shape[0], 1, this.blocks.shape[2], 1)
-    np.assigns(bottomSlice, 1)
+    var blockID = blockID == undefined ? 1 : blockID
+    np.assigns(bottomSlice, blockID)
 
     return this
   }
@@ -725,7 +731,8 @@ class GameControlPanel extends React.Component {
     super(props)
     this.gameState = props.gameState
     this.state = {
-      selectedBlockColor: this.gameState.selectedBlockColor
+      selectedBlockColor: this.gameState.selectedBlockColor,
+      buildPlate: true,
     }
     this.listeners = []
     this.addEventListener(window, "keydown", e => {
@@ -763,8 +770,15 @@ class GameControlPanel extends React.Component {
     this.gameState.selectedBlockColor = selectedBlockColor
   }
 
+  toggleBuildPlate() {
+    var newToggleState = !this.state.buildPlate
+    var blockId = newToggleState == true ? 1 : 0
+    var gen = (new WorldGenerator({blocks: this.gameState.blocks})).bottomPlate(blockId)
+    this.setState({buildPlate: newToggleState})
+  }
+
   render() {
-    var colorPicker = <div style={{display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr"}}>
+    var colorPicker = <div style={{display: "grid", gridTemplateColumns: "repeat(4, min-content)", rowGap: THEME.sizing.scale400, columnGap: THEME.sizing.scale400}}>
       {this.gameState.blockColors.map(color => {
         var isSelected = this.state.selectedBlockColor == color.id
         var border = isSelected ? "2px solid #00C5CD" : "1px solid #000"
@@ -773,7 +787,7 @@ class GameControlPanel extends React.Component {
           this.setSelectedBlockColor(color.id)
         }
         var div = <div
-          style={{margin: THEME.sizing.scale400, backgroundColor: color.hex, height: `${size}px`, width: `${size}px`, borderRadius: "5px", cursor: "pointer", border}}
+          style={{backgroundColor: color.hex, height: `${size}px`, width: `${size}px`, borderRadius: "5px", cursor: "pointer", border}}
           onClick={onClick}
           key={color.hex}
           >
@@ -782,9 +796,22 @@ class GameControlPanel extends React.Component {
       })}
     </div>
 
-    return <>
-      {colorPicker}
-    </>
+    //grid makes text wrap to width of largest div
+    return (
+      <div style={{display: "grid", gridTemplateColumns: "min-content"}}>
+        <LabelMedium>
+          Control
+        </LabelMedium>
+        <Caption1>
+          Change the block color you put down
+        </Caption1>
+        {colorPicker}
+        <Caption1>
+          Show or hide the build plate. It will not show up in your final item.
+        </Caption1>
+        <Button size={ButtonSize.compact} kind={ButtonKind.secondary} onClick={() => this.toggleBuildPlate()}> Toggle build plate </Button>
+      </div>
+    )
 
 
   }
@@ -879,6 +906,7 @@ class FlyControls {
     this.gameState = options.gameState
     this.domElement = options.domElement
     this.interactionEnabled = !options.interactionDisabled
+    this.isDisallowedBlockPos = options.isDisallowedBlockPos || (() => false)
 
     this.listeners = []
     this.addEventListener(window, "keydown", e => {
@@ -1072,7 +1100,11 @@ class FlyControls {
         var newBlockPos = normal.add(blockPos)
         for (var i = 0; i< this.clickBuffer.rightClick; i++) {
           if (!this.playerCollidesWithCube(newBlockPos, this.gameState.position)) {
-            this.gameState.addBlock(newBlockPos, this.gameState.selectedBlockColor)
+            if (!this.isDisallowedBlockPos(newBlockPos)) {
+              if (this.gameState.withinWorldBounds(newBlockPos)) {
+                this.gameState.addBlock(newBlockPos, this.gameState.selectedBlockColor)
+              }
+            }
           }
         }
       }
@@ -1082,7 +1114,9 @@ class FlyControls {
         var raymarchResult = this.gameState.raymarchToBlock(this.gameState.position, cameraDirection, 5)
         if (raymarchResult) {
           var [blockPos, hitPos] = raymarchResult
-          this.gameState.removeBlock(blockPos)
+          if (!this.isDisallowedBlockPos(blockPos)) {
+            this.gameState.removeBlock(blockPos)
+          }
         }
       }
       this.clickBuffer.click = 0
