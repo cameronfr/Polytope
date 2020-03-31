@@ -509,6 +509,11 @@ class VoxelEditor extends React.Component {
     this.canvasRef = React.createRef()
     this.containerRef = React.createRef()
 
+    this.initialize()
+
+  }
+
+  initialize() {
     const worldSize = new Vector3(16, 17, 16)
     this.camera = new PerspectiveCamera(95, 1.0, 0.1, 1000)
     this.camera.position.set(0.01 + worldSize.x/2, 10, 0)
@@ -516,7 +521,8 @@ class VoxelEditor extends React.Component {
 
     var blocks = (new WorldGenerator({worldSize})).bottomPlate().blocks
 
-    this.gameState = new GameState({blocks, camera:this.camera})
+    var savedGameStateJSON = window.localStorage.getItem("savedNewItemEditorState")
+    this.gameState = new GameState({blocks, camera:this.camera, json:savedGameStateJSON})
   }
 
   componentDidMount() {
@@ -535,12 +541,18 @@ class VoxelEditor extends React.Component {
     this.voxelRenderer = new VoxelRenderer({canvas: this.canvasRef.current, worldSize: this.gameState.worldSize})
     // this.voxelRenderer = new VoxelRenderer({worldSize, topBorderRadius: 14})
     this.renderTargetID = this.voxelRenderer.addTarget({gameState: this.gameState, element: this.canvasRef.current})
+    this.controls.externalTick(1/60)
+    this.voxelRenderer.render(this.renderTargetID)
 
+    const saveIntervalInSeconds = 10
+    var frameCount = 0
     var tick = timestamp => {
       if (document.hasFocus()) {
         this.stats.begin()
         this.controls.externalTick(1/60)
         this.voxelRenderer.render(this.renderTargetID)
+        frameCount % (60 * saveIntervalInSeconds) == 0 && this.saveGameState()
+        frameCount += 1
         this.stats.end()
       }
       this.animationFrameRequestID = window.requestAnimationFrame(tick)
@@ -552,6 +564,23 @@ class VoxelEditor extends React.Component {
   addEventListener(obj, eventName, func) {
     this.listeners.push([obj, eventName, func])
     obj.addEventListener(eventName, func)
+  }
+
+  saveGameState() {
+    var json = this.gameState.toJSON()
+    window.localStorage.setItem("savedNewItemEditorState", json)
+  }
+
+  resetGameState() {
+    // would be better to re-run defaults in constructor
+    window.localStorage.setItem("savedNewItemEditorState", null)
+    var gen = (new WorldGenerator({blocks: this.gameState.blocks})).clear()
+    gen.bottomPlate()
+    this.gameState.position.set(0.01 + this.gameState.worldSize.x/2, 10, 0)
+    this.gameState.camera.rotation.set(0, 0.1, 0)
+    this.camera.lookAt(this.gameState.worldSize.clone().divideScalar(2))
+    this.camera.updateWorldMatrix()
+    this.saveGameState()
   }
 
   componentWillUnmount() {
@@ -580,7 +609,7 @@ class VoxelEditor extends React.Component {
             </div>
           </div>
           <div style={{flexShrink: "1", height: "100%", boxSizing: "border-box", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", padding: THEME.sizing.scale600, marginLeft: THEME.sizing.scale1000}}>
-            <GameControlPanel gameState={this.gameState}/>
+            <GameControlPanel gameState={this.gameState} reset={()=>this.resetGameState()} />
           </div>
         </div>
       </div>
@@ -614,6 +643,11 @@ class WorldGenerator {
     for (var z = 0; z < this.blocks.shape[2]; z++) {
       this.blocks.set(1, 1, z, 3, z)
     }
+    return this
+  }
+
+  clear() {
+    np.assigns(this.blocks, 0)
     return this
   }
 
@@ -666,14 +700,54 @@ class GameState {
     {id:16,name: "rock", hex: "#9b9c82"},
   ]
 
+  defaultCamera = () => new PerspectiveCamera(95, 1.0, 0.1, 1000)
+
   constructor(options) {
+    if (options.json) {
+      options = {...options, ...this.fromJSON(options.json)}
+    }
+
     this.selectedBlockColor = 1
     this.blocks = options.blocks
 
-    this.camera = options.camera || new PerspectiveCamera(95, 1.0, 0.1, 1000)
+    this.camera = options.camera || this.defaultCamera()
+    if (options.playerState) {
+      this.camera.position.copy(options.playerState.position)
+      this.camera.rotation.copy(options.playerState.rotation)
+    }
     this.position = this.camera.position
     this.blocks = options.blocks
     this.worldSize = new Vector3(...options.blocks.shape.slice(0, 3))
+  }
+
+  toJSON() {
+    var blocks = {data: this.blocks.data, shape: this.blocks.shape}
+    var playerState = {position: this.camera.position, rotation: this.camera.rotation}
+    var json = JSON.stringify({blocks, playerState})
+    return json
+  }
+
+  fromJSON(json) {
+    try {
+      var jsonObject = JSON.parse(json)
+      var blockArray = new Uint8Array(Object.values(jsonObject.blocks.data))
+      var blocks = ndarray(blockArray, jsonObject.blocks.shape)
+      var playerState = jsonObject.playerState
+
+      var valid // to check validity of saved data
+      valid = (new Vector3()).copy(playerState.position)
+      valid = (new Vector3()).copy(playerState.rotation)
+
+      return {blocks, playerState}
+    } catch(e) {
+      console.log(e)
+      return {}
+    }
+  }
+
+  //serializes a slice, used as input to hash.  e.g. lo=[0, 1, 0] hi=[16, 16, 16]
+  serializeBlockData(lo, hi) {
+    var slice = this.blocks.lo(lo).hi(hi)
   }
 
   blockExists(pos) {
@@ -796,6 +870,10 @@ class GameControlPanel extends React.Component {
       })}
     </div>
 
+    var onResetConfirm = () => {
+      this.props.reset()
+      this.setState({buildPlate: true})
+    }
     //grid makes text wrap to width of largest div
     return (
       <div style={{display: "grid", gridTemplateColumns: "min-content"}}>
@@ -810,10 +888,55 @@ class GameControlPanel extends React.Component {
           Show or hide the build plate. It will not show up in your final item.
         </Caption1>
         <Button size={ButtonSize.compact} kind={ButtonKind.secondary} onClick={() => this.toggleBuildPlate()}> Toggle build plate </Button>
+      <ResetButtonWithConfirm onConfirmed={onResetConfirm}/>
       </div>
     )
 
 
+  }
+}
+
+class ResetButtonWithConfirm extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = {
+      awaitingConfirmation: false,
+      disabledDuringConfirmation: true,
+      timeouts: [],
+    }
+  }
+
+  render() {
+    var setToConsideration = () => {
+      var timeout1 = window.setTimeout(() => this.setState({disabledDuringConfirmation: false}), 5000)
+      var timeout2 = window.setTimeout(() => this.setState({awaitingConfirmation: false}), 10000)
+      this.setState({awaitingConfirmation: true, disabledDuringConfirmation: true, timeouts:[timeout1, timeout2]})
+    }
+
+    var notAwaiting = <>
+      <Caption1>Reset to a blank slate</Caption1>
+      <Button size={ButtonSize.compact} kind={ButtonKind.secondary} onClick={setToConsideration}>Reset build</Button>
+    </>
+
+    var cancelTimeouts = () => this.state.timeouts.map(timeout => window.clearTimeout(timeout))
+    var cancel = () => {
+      cancelTimeouts()
+      this.setState({awaitingConfirmation: false})
+    }
+    var confirm = () => {
+      cancelTimeouts()
+      this.props.onConfirmed()
+      this.setState({awaitingConfirmation: false})
+    }
+    var awaiting = <>
+      <Caption1>Are you sure?</Caption1>
+      <div style={{display: "flex"}}>
+        <Button size={ButtonSize.compact} kind={ButtonKind.secondary} onClick={confirm} disabled={this.state.disabledDuringConfirmation}>Confirm</Button>
+        <Button size={ButtonSize.compact} kind={ButtonKind.secondary} onClick={cancel} disabled={this.state.disabledDuringConfirmation} style={{flexGrow: "1", marginLeft: "10px"}}>Cancel</Button>
+      </div>
+    </>
+
+    return (this.state.awaitingConfirmation ? awaiting : notAwaiting)
   }
 }
 
