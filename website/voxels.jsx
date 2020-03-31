@@ -16,6 +16,33 @@ import np from "ndarray-ops"
 
 import {LightTheme, BaseProvider, styled} from 'baseui';
 const THEME = LightTheme
+import {
+  DisplayLarge,
+  DisplayMedium,
+  DisplaySmall,
+  DisplayXSmall,
+  HeadingXXLarge,
+  HeadingXLarge,
+  HeadingLarge,
+  HeadingMedium,
+  HeadingSmall,
+  HeadingXSmall,
+  LabelLarge,
+  LabelMedium,
+  LabelSmall,
+  LabelXSmall,
+  ParagraphLarge,
+  ParagraphMedium,
+  ParagraphSmall,
+  ParagraphXSmall,
+  Caption1,
+  Caption2,
+} from 'baseui/typography';
+import { StatefulTooltip } from "baseui/tooltip";
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from "baseui/icon"
+import { MdMouse } from "react-icons/md"
+import {IoMdHelpCircleOutline, IoMdHelp} from "react-icons/io"
+
 
 class VoxelRenderer {
   constructor(options) {
@@ -510,10 +537,12 @@ class VoxelEditor extends React.Component {
     this.renderTargetID = this.voxelRenderer.addTarget({gameState: this.gameState, element: this.canvasRef.current})
 
     var tick = timestamp => {
-      this.stats.begin()
-      this.controls.externalTick(1/60)
-      this.voxelRenderer.render(this.renderTargetID)
-      this.stats.end()
+      if (document.hasFocus()) {
+        this.stats.begin()
+        this.controls.externalTick(1/60)
+        this.voxelRenderer.render(this.renderTargetID)
+        this.stats.end()
+      }
       this.animationFrameRequestID = window.requestAnimationFrame(tick)
     }
     this.animationFrameRequestID = window.requestAnimationFrame(tick)
@@ -542,8 +571,11 @@ class VoxelEditor extends React.Component {
     return (
       <div style={{width: "100%", height:"100%"}}>
         <div style={{display: "flex", flexDirection: "row", padding: THEME.sizing.scale1000, boxSizing: "border-box", height: "100%"}}>
-          <div ref={this.containerRef} style={{flexGrow: "1", display: "flex", flexDirection: "column"}}>
+          <div ref={this.containerRef} style={{flexGrow: "1", display: "flex", flexDirection: "column", }}>
             <div style={{boxShadow: "0px 1px 2px #ccc", border: "1px solid #fff", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "1", flexGrow: "1"}}>
+              <div style={{position: "absolute", right: "10px", top: "10px"}}>
+                <ControlsHelpTooltip />
+              </div>
               <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
             </div>
           </div>
@@ -732,23 +764,106 @@ class GameControlPanel extends React.Component {
   }
 
   render() {
+    var colorPicker = <div style={{display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr"}}>
+      {this.gameState.blockColors.map(color => {
+        var isSelected = this.state.selectedBlockColor == color.id
+        var border = isSelected ? "2px solid #00C5CD" : "1px solid #000"
+        var size = isSelected ? 28 : 30 //not sure why 30px vs 31px results in no visible size change.
+        var onClick = e => {
+          this.setSelectedBlockColor(color.id)
+        }
+        var div = <div
+          style={{margin: THEME.sizing.scale400, backgroundColor: color.hex, height: `${size}px`, width: `${size}px`, borderRadius: "5px", cursor: "pointer", border}}
+          onClick={onClick}
+          key={color.hex}
+          >
+        </div>
+        return div
+      })}
+    </div>
+
+    return <>
+      {colorPicker}
+    </>
+
+
+  }
+}
+
+class ControlsHelpTooltip extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = {hover: false}
+  }
+
+  keyRect(icon, height, isSquare, isBlank) {
+    var styles = {height, fontSize: height}
+    if (isSquare) {styles.width = height}
+    if (!isBlank) {styles = {...styles, border: "1px solid #ccc", boxShadow: "1px 1px 1px #ccc"}}
+    return <div style={{display: "flex", padding: "2px", borderRadius: "5px", alignItems: "center", justifyContent: "center",  ...styles, margin: "1px", fontFamily: THEME.typography.LabelSmall.fontFamily}}>
+      {icon}
+    </div>
+  }
+
+  centeredLabel(text) {
+    return <div style={{display: "flex", alignItems: "end", justifyContent: "start", whiteSpace: "nowrap", ...THEME.typography.LabelSmall, fontWeight: "300", marginTop: "auto"}} >
+      {text}
+    </div>
+  }
+
+  render() {
+    const keyHeight = "10px"
+    var wasd = <div style={{display: "grid", gridTemplateColumns: "1fr 1fr 1fr"}}>
+      {this.keyRect(" ", keyHeight, true, true)}
+      {this.keyRect("w", keyHeight, true)}
+      {this.keyRect(" ", keyHeight, true, true)}
+      {this.keyRect("a", keyHeight, true)}
+      {this.keyRect("s", keyHeight, true)}
+      {this.keyRect("d", keyHeight, true)}
+    </div>
+
+    var updownleftright = <div style={{display: "grid", gridTemplateColumns: "1fr 1fr 1fr"}}>
+      {this.keyRect(" ", keyHeight, true, true)}
+      {this.keyRect(<ArrowUp size={keyHeight}/>, keyHeight, true)}
+      {this.keyRect(" ", keyHeight, true, true)}
+      {this.keyRect(<ArrowLeft size={keyHeight}/>, keyHeight, true)}
+      {this.keyRect(<ArrowDown size={keyHeight}/>, keyHeight, true)}
+      {this.keyRect(<ArrowRight size={keyHeight}/>, keyHeight, true)}
+    </div>
+
+    var shifte = this.keyRect("shift", keyHeight)
+    var space = this.keyRect("space", keyHeight)
+    var rightClick = this.keyRect(<div style={{display: "flex", alignItems: "center"}}><MdMouse size={keyHeight}/> right</div>, keyHeight )
+    var leftClick = this.keyRect(<div style={{display: "flex", alignItems: "center"}}><MdMouse size={keyHeight}/> left</div>, keyHeight )
+    var mouseMove = this.keyRect(<div style={{display: "flex", alignItems: "center"}}><ArrowLeft size={keyHeight}/><MdMouse size={keyHeight}/><ArrowRight size={keyHeight}/></div>, keyHeight )
+    var e = this.keyRect("e", keyHeight )
+    var esc = this.keyRect("esc", keyHeight )
+
+    const showEdit = !this.props.hideEditControls
+    var tooltipBox = (
+      <div style={{display: "grid", gridTemplateColumns: "min-content min-content", columnGap: "10px", rowGap: "10px", borderRadius: "8px", position: "absolute", right: "0", marginTop: "10px", boxShadow:"0px 0px 2px #ccc", padding: THEME.sizing.scale400, backgroundColor: "white", color: THEME.colors.colorSecondary}}>
+          {leftClick} {this.centeredLabel("to gain focus")}
+          {esc} {this.centeredLabel("lose focus")}
+          {wasd} {this.centeredLabel("move")}
+          {showEdit && <>{updownleftright} {this.centeredLabel("select block type")}</>}
+          {shifte} {this.centeredLabel("go down")}
+          {space} {this.centeredLabel("go up")}
+          {mouseMove} {this.centeredLabel("look")}
+          {showEdit && <>{rightClick} {this.centeredLabel("add block")}</>}
+          {showEdit && <>{leftClick} {this.centeredLabel("remove block")}</>}
+          {e} {this.centeredLabel("toggle focus")}
+      </div>
+    )
+
     return (
-      <div style={{display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr"}}>
-        {this.gameState.blockColors.map(color => {
-          var isSelected = this.state.selectedBlockColor == color.id
-          var border = isSelected ? "2px solid #00C5CD" : "1px solid #000"
-          var size = isSelected ? 28 : 30 //not sure why 30px vs 31px results in no visible size change.
-          var onClick = e => {
-            this.setSelectedBlockColor(color.id)
-          }
-          var div = <div
-            style={{margin: THEME.sizing.scale400, backgroundColor: color.hex, height: `${size}px`, width: `${size}px`, borderRadius: "5px", cursor: "pointer", border}}
-            onClick={onClick}
-            key={color.hex}
-            >
-          </div>
-          return div
-        })}
+      <div style={{position: "relative", display:"inline-block"}}>
+        <IoMdHelp
+          onMouseOver={() => this.setState({hover: true})}
+          onMouseLeave={() => this.setState({hover: false})}
+          size={"25px"}
+          color={THEME.colors.colorSecondary}
+          style={{padding: "4px", borderRadius: "100%", boxShadow: "0px 0px 3px #ccc", backgroundColor: "white"}}/>
+        {this.state.hover && tooltipBox}
       </div>
     )
   }
@@ -780,7 +895,7 @@ class FlyControls {
         } else {
           this.clickBuffer.click += 1
         }
-      } else if (e.which == 3) {
+      } else if (e.which == 3 && this.capturingMouseMovement) {
           this.clickBuffer.rightClick += 1
       }
     })
@@ -1069,5 +1184,6 @@ module.exports = {
   GameState,
   FlyControls,
   AutomaticOrbiter,
-  WorldGenerator
+  WorldGenerator,
+  ControlsHelpTooltip,
 }

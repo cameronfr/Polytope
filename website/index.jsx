@@ -8,7 +8,7 @@ import "regenerator-runtime/runtime";
 var Web3 = require("web3");
 
 // Voxel Stuff
-import {VoxelEditor, VoxelRenderer, FlyControls, GameState, AutomaticOrbiter, WorldGenerator} from "./voxels.jsx"
+import {VoxelEditor, VoxelRenderer, FlyControls, GameState, AutomaticOrbiter, WorldGenerator, ControlsHelpTooltip} from "./voxels.jsx"
 import {Vector3, PerspectiveCamera} from 'three';
 import {ApparatusGenerator} from "./procedural.jsx"
 
@@ -162,6 +162,10 @@ class App extends React.Component {
   }
 
   async signIn() {
+    if (!window.ethereum) {
+      toaster.warning(`Please use a Web3 client like Metamask`)
+      return
+    }
     var web3 = new Web3(window.ethereum)
     try {
       await window.ethereum.enable()
@@ -458,6 +462,9 @@ class Listing extends React.Component {
         <div style={{display: "flex", justifyContent: "center", alignItems: "center", padding: "20px"}}>
           <div style={{display: "flex", flexWrap: "wrap"}}>
             <div style={{width: this.viewAreaSize+"px", height: this.viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", margin: this.blockMargins+"px", position: "relative", zIndex: "1"}}>
+              <div style={{position: "absolute", top:"10px", right: "10px"}}>
+                <ControlsHelpTooltip hideEditControls/>
+              </div>
               <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
             </div>
             <div style={{width: this.viewAreaSize+"px", maxWidth: this.viewAreaSize + "px", display: "flex", flexDirection: "column", margin: this.blockMargins+"px"}}>
@@ -560,6 +567,7 @@ class Header extends React.Component {
     )
   }
 }
+
 
 var RouterLink = props => {
   var unstyledLink = <RawRouterLink {...props} style={{textDecoration: "none"}}>

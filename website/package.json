@@ -16,6 +16,7 @@
     "randomcolor": "^0.5.4",
     "react": "15.x || 16.x || 16.4.0-alpha.0911da3",
     "react-dom": "15.x || 16.x || 16.4.0-alpha.0911da3",
+    "react-icons": "^3.9.0",
     "regl": "^1.4.2",
     "sentencer": "^0.2.0",
     "stats.js": "^0.17.0",
