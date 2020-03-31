@@ -806,7 +806,7 @@ class ControlsHelpTooltip extends React.Component {
   }
 
   centeredLabel(text) {
-    return <div style={{display: "flex", alignItems: "end", justifyContent: "start", whiteSpace: "nowrap", ...THEME.typography.LabelSmall, fontWeight: "300", marginTop: "auto"}} >
+    return <div style={{display: "flex", alignItems: "center", justifyContent: "start", whiteSpace: "nowrap", ...THEME.typography.LabelSmall, fontWeight: "300", marginTop: "auto", marginLeft: "10px"}} >
       {text}
     </div>
   }
@@ -838,20 +838,22 @@ class ControlsHelpTooltip extends React.Component {
     var mouseMove = this.keyRect(<div style={{display: "flex", alignItems: "center"}}><ArrowLeft size={keyHeight}/><MdMouse size={keyHeight}/><ArrowRight size={keyHeight}/></div>, keyHeight )
     var e = this.keyRect("e", keyHeight )
     var esc = this.keyRect("esc", keyHeight )
+    var breakerLine = <div style={{height:"1px", backgroundColor: "#ccc"}}></div>
 
     const showEdit = !this.props.hideEditControls
     var tooltipBox = (
-      <div style={{display: "grid", gridTemplateColumns: "min-content min-content", columnGap: "10px", rowGap: "10px", borderRadius: "8px", position: "absolute", right: "0", marginTop: "10px", boxShadow:"0px 0px 2px #ccc", padding: THEME.sizing.scale400, backgroundColor: "white", color: THEME.colors.colorSecondary}}>
+      <div style={{display: "grid", gridTemplateColumns: "min-content min-content", rowGap: "10px", borderRadius: "8px", position: "absolute", right: "0", marginTop: "10px", boxShadow:"0px 0px 2px #ccc", padding: THEME.sizing.scale400, backgroundColor: "white", color: THEME.colors.colorSecondary}}>
           {leftClick} {this.centeredLabel("to gain focus")}
           {esc} {this.centeredLabel("lose focus")}
+          {e} {this.centeredLabel("toggle focus")}
+          {breakerLine} {breakerLine}
           {wasd} {this.centeredLabel("move")}
-          {showEdit && <>{updownleftright} {this.centeredLabel("select block type")}</>}
           {shifte} {this.centeredLabel("go down")}
           {space} {this.centeredLabel("go up")}
           {mouseMove} {this.centeredLabel("look")}
           {showEdit && <>{rightClick} {this.centeredLabel("add block")}</>}
           {showEdit && <>{leftClick} {this.centeredLabel("remove block")}</>}
-          {e} {this.centeredLabel("toggle focus")}
+          {showEdit && <>{updownleftright} {this.centeredLabel("select block type")}</>}
       </div>
     )
 
