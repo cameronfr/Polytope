@@ -77,7 +77,6 @@ import {
 import Sentencer from "sentencer"
 import UsernameGenerator from "username-generator"
 import { decode } from "blurhash"
-import Faker from "faker"
 import RandomGen from "random-seed"
 
 
@@ -93,18 +92,28 @@ class Datastore {
       .reduce((s, c) => Math.imul(31, s) + c.charCodeAt(0) | 0, 0)
   }
 
-  generateRandomUsername(id) {
-    // var name = Sentencer.make("{{ noun }}")
-    Faker.seed(this.hashCode(id))
-    name = Faker.internet.userName()
-    return name
+  generateRandomUsername() {
+    var processIt = str => {
+      str = Sentencer.make(str)
+      if (str && Math.random() < 0.3) {
+        str = str[0].toUpperCase() + str.slice(1, str.length)
+      }
+      return str
+    }
+
+    var parts = []
+    parts.push(`${Math.random() < 0.3 ? "{{adjective}}" : ""}`)
+    parts.push(`{{noun}}`)
+    parts.push(`${Math.random() < 0.5 ? ".{{noun}}" : ""}`)
+    parts.push(`${Math.random() < 0.4 ? (Math.random()*100).toFixed(0) : ""}`)
+
+    return parts.map(p => processIt(p)).join("")
   }
 
   generateRandomBlurredImageData(id, width, height) {
     if (id in this.imageCache) {
       return this.imageCache[id]
     }
-    console.log("generating")
 
     var randomGen = RandomGen.create(this.hashCode(id))
     var res = 4
@@ -150,8 +159,7 @@ class Datastore {
     }
 
     const name = this.generateRandomUsername(id)
-    Faker.seed(0)
-    const avatarURL = Faker.image.avatar()
+    const avatarURL = "none"
 
     var data = {name, avatarURL}
     this.userCache[id] = data
@@ -281,7 +289,7 @@ class ListingCard extends React.Component {
       obj.addEventListener(eventName, func)
     }
 
-    var {blocks} = {blocks: this.props.blocks} || datastore.getListingDataById(this.props.id)
+    var blocks = this.props.blocks || datastore.getListingDataById(this.props.id).blocks
 
     var gameState = new GameState({blocks})
 
