@@ -24,7 +24,7 @@ import {useStyletron} from 'baseui';
 import {LightTheme, BaseProvider, styled} from 'baseui';
 import { StyledLink } from "baseui/link";
 import { Button, KIND, SIZE } from "baseui/button";
-import { Input } from "baseui/input"
+import { Input as InputBroken } from "baseui/input"
 import { Search } from "baseui/icon";
 // import { Notification, KIND} from "baseui/notification";
 import { toaster, ToasterContainer } from "baseui/toast";
@@ -275,10 +275,11 @@ class ListingCard extends React.Component {
     this.updateBlockDisplay()
   }
 
-  componentDidUpdate() {
-    this.cleanupBlockDisplay()
-    this.updateBlockDisplay()
-    //ANY prop change will cause block display to fully update. also, listeners not removed
+  componentDidUpdate(prevProps) {
+    if (prevProps.blocks != this.props.blocks) {
+      this.cleanupBlockDisplay()
+      this.updateBlockDisplay()
+    }
   }
 
   updateBlockDisplay() {
@@ -289,9 +290,12 @@ class ListingCard extends React.Component {
       obj.addEventListener(eventName, func)
     }
 
-    var blocks = this.props.blocks || datastore.getListingDataById(this.props.id).blocks
+    var {blocks} = this.props.listingData || datastore.getListingDataById(this.props.id)
 
     var gameState = new GameState({blocks})
+    console.log("gamestate worldsize is", gameState.worldSize)
+    console.log("gamestate blocks is", gameState.blocks)
+    console.log("gamestate blocks data", gameState.blocks.data)
 
     const lookAtPos = new Vector3(gameState.worldSize.x/2, 10, gameState.worldSize.y/2)
     var orbiter = new AutomaticOrbiter(gameState.camera, {center: lookAtPos.clone(), height: 8, period: 10, radius: 1.2*gameState.worldSize.x/2, lookAtPos})
@@ -300,7 +304,7 @@ class ListingCard extends React.Component {
 
     // Orbiting
     var timeElapsed = 0
-    addEventListener(this.canvasRef.current, "mouseover", e => {
+    var enableRotation = () => {
       var lastTimestamp = window.performance.now()
       var tick = timestamp => {
         this.props.voxelRenderer.renderQueue.unshift(this.renderID)
@@ -310,10 +314,13 @@ class ListingCard extends React.Component {
         this.animationFrameRequestID = window.requestAnimationFrame(tick)
       }
       this.animationFrameRequestID = window.requestAnimationFrame(tick)
-    })
-    addEventListener(this.canvasRef.current, "mouseleave", e => {
-      window.cancelAnimationFrame(this.animationFrameRequestID)
-    })
+    }
+    if (this.props.autoOrbit) {
+      enableRotation()
+    } else {
+      addEventListener(this.canvasRef.current, "mouseover", e => enableRotation())
+      addEventListener(this.canvasRef.current, "mouseleave", e => window.cancelAnimationFrame(this.animationFrameRequestID))
+    }
   }
 
   cleanupBlockDisplay() {
@@ -327,11 +334,9 @@ class ListingCard extends React.Component {
   }
 
   render() {
-    const { price, name } = datastore.getListingDataById(this.props.id)
-
-    return (
-      <RouterLink to={`/item/${this.props.id}`}>
-      <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", cursor: "pointer", backfaceVisibility: "hidden", position: "relative", zIndex: "1"}}>
+    const { price, name } = this.props.listingData || datastore.getListingDataById(this.props.id)
+    var inner = <>
+      <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", backfaceVisibility: "hidden", position: "relative", zIndex: "1", width: "min-content"}}>
         <div style={{height: this.imageSize+"px", width: this.imageSize+"px", position: "relative", backgroundColor: "eee"}}>
           <div style={{position: "absolute", right: "10px", top: "10px"}}>
             <UserAvatar id={this.props.id} size={35} />
@@ -348,8 +353,15 @@ class ListingCard extends React.Component {
           </LabelSmall>
         </div>
       </div>
+    </>
+
+    if (!this.props.listingData) {
+      return <RouterLink to={`/item/${this.props.id}`}>
+        {inner}
       </RouterLink>
-    )
+    } else {
+      return inner
+    }
   }
 }
 
@@ -580,6 +592,14 @@ var RouterLink = props => {
     {props.children}
   </RawRouterLink>
   return unstyledLink
+}
+
+// baseweb input onKeyDown is broken. this will break forms
+var Input = props => {
+  var eventCapturingInput  = <div>
+    <InputBroken {...props} onKeyDown={e => e.stopPropagation()} onKeyUp={e => e.stopPropagation()} onKeyPress={e => e.stopPropagation()} />
+  </div>
+  return eventCapturingInput
 }
 
 //Sphere optimization possible todo: https://medium.com/@calebleak/raymarching-voxel-rendering-58018201d9d6
@@ -940,6 +960,7 @@ class VoxelRenderer {
         color: this.regl.prop('color'),
         blocks: (context, props) => {
           const worldSize = props.gameState.worldSize
+          // .data does not change for a slice, so passing scijs slices as data here won't work
           var blocksReshape = ndarray(props.gameState.blocks.data, [worldSize.x, worldSize.y*worldSize.z, 4])
           var blocksTexture = this.regl.texture(blocksReshape)
           return blocksTexture
@@ -1141,12 +1162,28 @@ class VoxelEditor extends React.Component {
     this.camera.updateProjectionMatrix()
   }
 
+  // removes build plate. must copy because regl can't handle slices.
+  getPublishableBlocks() {
+    var validSlice = this.gameState.blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 4)
+    var publishableBlocks = ndarray(new Uint8Array(16*16*16*4), [16, 16, 16, 4])
+    np.assign(publishableBlocks, validSlice)
+    return publishableBlocks
+  }
+
   render() {
     var sidebar
     if (this.state.atPublishDialog) {
-      sidebar = <PublishItemPanel onGoBack={() => this.setState({atPublishDialog: false})} blocks={this.gameState.blocks}/>
+      var onGoBack = () => {
+        this.setState({atPublishDialog: false})
+        this.controls.interactionEnabled = true
+      }
+      sidebar = <PublishItemPanel onGoBack={onGoBack} blocks={this.getPublishableBlocks()}/>
     } else {
-      sidebar = <GameControlPanel gameState={this.gameState} reset={()=>this.resetGameState()} onContinue={() => this.setState({atPublishDialog: true})} />
+      var onContinue = () => {
+        this.setState({atPublishDialog: true})
+        this.controls.interactionEnabled = false
+      }
+      sidebar = <GameControlPanel gameState={this.gameState} reset={()=>this.resetGameState()} onContinue={onContinue} />
     }
 
 
@@ -1156,7 +1193,7 @@ class VoxelEditor extends React.Component {
           <div ref={this.containerRef} style={{flexGrow: "1", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "1", minWidth: "200px"}}>
             <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
             <div style={{position: "absolute", right: "10px", top: "10px"}}>
-              <ControlsHelpTooltip />
+              <ControlsHelpTooltip hideEditControls={this.state.atPublishDialog} />
             </div>
           </div>
           <div style={{}}>
@@ -1444,7 +1481,7 @@ class GameControlPanel extends React.Component {
         <Button size={SIZE.compact} kind={KIND.secondary} onClick={() => this.toggleBuildPlate()}> Toggle build plate </Button>
         <ResetButtonWithConfirm onConfirmed={onResetConfirm}/>
         <Caption1>
-          Continue to publishing item
+          Continue to minting item
         </Caption1>
         <Button size={SIZE.compact} kind={KIND.primary} onClick={this.props.onContinue}>Continue</Button>
       </div>
@@ -1467,6 +1504,10 @@ class PublishItemPanel extends React.Component {
 
   }
 
+  componentWillUnmount() {
+    this.voxelRenderer.destroy()
+  }
+
   ethStringToWei(amountString) {
     const ETH_DECIMALS = 18
     var tokenMultiplier = BigNumber(10).pow(BigNumber(ETH_DECIMALS))
@@ -1474,8 +1515,11 @@ class PublishItemPanel extends React.Component {
     return convertedAmount
   }
 
+
   render() {
-    var priceValid = !this.ethStringToWei(this.state.price).isNaN()
+    var priceBN = this.ethStringToWei(this.state.price)
+    var priceValid = !priceBN.isNaN() && priceBN.gte(0)
+
     var allInputValidated = false
         // <ArrowLeft size={28} />
 
@@ -1484,7 +1528,7 @@ class PublishItemPanel extends React.Component {
         For sale
       </Checkbox>
       <div style={{visibility: this.state.forSale ? "unset" : "hidden"}}>
-        <Input size={SIZE.compact} placeholder={"price"} onChange={e => this.setState({price: e.target.value})} endEnhancer={"ETH"} error={this.state.price && !priceValid}/>
+        <Input size={SIZE.compact} placeholder={"price"} onChange={e => this.setState({price: e.target.value})} endEnhancer={"ETH"} error={this.state.price && !priceValid} inputMode={"decimal"} />
       </div>
 
     </div>
@@ -1493,25 +1537,27 @@ class PublishItemPanel extends React.Component {
     return <>
       <div style={{display: "grid", gridTemplateColumns: "1fr", height: "min-content", width: "250px"}}>
         <LabelMedium>
-          Publish
+          Mint
         </LabelMedium>
         <Caption1>
           Name of the item
         </Caption1>
-        <Input size={SIZE.compact} placeholder={"Item name"} value={this.state.name} onChange={e => this.setState({name: e.target.value})} />
+        <Input size={SIZE.compact} placeholder={"Item name"} value={this.state.name} onChange={e => {this.setState({name: e.target.value})}} />
         <Caption1>
           Whether to list on the store. You can always change this later.
         </Caption1>
         {priceArea}
         <Caption1>
-          See preview below
+          See a preview of your item below
         </Caption1>
+        <div style={{display: "flex", justifyContent: "center", marginBottom: "1em"}}>
+          <ListingCard listingData={{blocks: this.props.blocks, name: this.state.name || " ", price: this.state.price}} voxelRenderer={this.voxelRenderer} autoOrbit />
+        </div>
         <div style={{display: "grid", gridAutoColumn: "1fr", gridAutoFlow: "column", columnGap: THEME.sizing.scale600}}>
           <Button size={SIZE.compact} kind={KIND.secondary} onClick={this.props.onGoBack}> Go back </Button>
-          <Button size={SIZE.compact} kind={KIND.primary} onClick={true} disabled={!allInputValidated}>Publish</Button>
+          <Button size={SIZE.compact} kind={KIND.primary} onClick={true} disabled={!allInputValidated}>Mint</Button>
         </div>
       </div>
-      <ListingCard blocks={this.props.blocks} voxelRenderer={this.voxelRenderer} />
     </>
 
   }
@@ -1552,7 +1598,7 @@ class ResetButtonWithConfirm extends React.Component {
     var awaiting = <>
       <Caption1>Are you sure?</Caption1>
       <div style={{display: "flex"}}>
-        <Button size={SIZE.compact} kind={KIND.secondary} onClick={confirm} disabled={this.state.disabledDuringConfirmation}>Confirm</Button>
+        <Button size={SIZE.compact} kind={KIND.secondary} onClick={confirm} disabled={this.state.disabledDuringConfirmation} style={{flexGrow: "1"}}>Confirm</Button>
         <Button size={SIZE.compact} kind={KIND.secondary} onClick={cancel} disabled={this.state.disabledDuringConfirmation} style={{flexGrow: "1", marginLeft: "10px"}}>Cancel</Button>
       </div>
     </>
@@ -1654,15 +1700,14 @@ class FlyControls {
 
     this.listeners = []
     this.addEventListener(window, "keydown", e => {
+      this.capturingMouseMovement && e.preventDefault()
       this.capturingMouseMovement && this.updateKeystates(e.key, true)
-      e.key == " " && e.preventDefault() // prevent page scroll on spacebar
       e.key == "e" && this.toggleMouseCapture()
     })
     this.addEventListener(window, "keyup", e => {
       this.capturingMouseMovement && this.updateKeystates(e.key, false)
     })
     this.addEventListener(this.domElement, "mousedown", e => {
-      e.preventDefault()
       if (e.which == 1) { // left click
         if (!this.capturingMouseMovement) {
           this.domElement.requestPointerLock()
@@ -1852,7 +1897,6 @@ class FlyControls {
           }
         }
       }
-      this.clickBuffer.rightClick = 0
     } else if (this.clickBuffer.click > 0) {
       for (var i = 0; i< this.clickBuffer.click; i++) {
         var raymarchResult = this.gameState.raymarchToBlock(this.gameState.position, cameraDirection, 5)
@@ -1863,7 +1907,6 @@ class FlyControls {
           }
         }
       }
-      this.clickBuffer.click = 0
     }
   }
 
@@ -1918,7 +1961,6 @@ class FlyControls {
     }
     this.gameState.camera.rotateOnWorldAxis(new Vector3(0, 1, 0), -this.rotationSensitivty * this.mouseMoveBuffer.x)
 
-    this.mouseMoveBuffer = {x: 0, y: 0}
 
   }
 
@@ -1931,9 +1973,12 @@ class FlyControls {
 
     // moving, looking, colliding
     this.moveLookTick(cameraDirection, timeDelta)
+    this.mouseMoveBuffer = {x: 0, y: 0}
 
     // adding blocks, removing blocks, block highlight
     this.interactionEnabled && this.interactionTick(cameraDirection)
+    this.clickBuffer.rightClick = 0
+    this.clickBuffer.click = 0
   }
 }
 
