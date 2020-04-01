@@ -293,9 +293,6 @@ class ListingCard extends React.Component {
     var {blocks} = this.props.listingData || datastore.getListingDataById(this.props.id)
 
     var gameState = new GameState({blocks})
-    console.log("gamestate worldsize is", gameState.worldSize)
-    console.log("gamestate blocks is", gameState.blocks)
-    console.log("gamestate blocks data", gameState.blocks.data)
 
     const lookAtPos = new Vector3(gameState.worldSize.x/2, 10, gameState.worldSize.y/2)
     var orbiter = new AutomaticOrbiter(gameState.camera, {center: lookAtPos.clone(), height: 8, period: 10, radius: 1.2*gameState.worldSize.x/2, lookAtPos})
@@ -1517,10 +1514,18 @@ class PublishItemPanel extends React.Component {
 
 
   render() {
+    var caption = (text, errorText, isError) => <>
+        <Caption1 color={isError ? ["negative400"] : undefined}>
+          {isError ? errorText : text}
+        </Caption1>
+      </>
+
     var priceBN = this.ethStringToWei(this.state.price)
     var priceValid = !priceBN.isNaN() && priceBN.gte(0)
 
-    var allInputValidated = false
+    var nameValid = this.state.name && (/^[a-zA-Z0-9]+$/).test(this.state.name)
+
+    var allInputValidated = priceValid
         // <ArrowLeft size={28} />
 
     var priceArea = <div style={{display: "grid", gridTemplateColumns: "min-content 1fr", whiteSpace: "nowrap", alignItems: "center", columnGap: THEME.sizing.scale600}}>
@@ -1539,9 +1544,7 @@ class PublishItemPanel extends React.Component {
         <LabelMedium>
           Mint
         </LabelMedium>
-        <Caption1>
-          Name of the item
-        </Caption1>
+        {caption("Name of the item", "Name can only have letters and numbers", this.state.name && !nameValid)}
         <Input size={SIZE.compact} placeholder={"Item name"} value={this.state.name} onChange={e => {this.setState({name: e.target.value})}} />
         <Caption1>
           Whether to list on the store. You can always change this later.
@@ -1551,7 +1554,7 @@ class PublishItemPanel extends React.Component {
           See a preview of your item below
         </Caption1>
         <div style={{display: "flex", justifyContent: "center", marginBottom: "1em"}}>
-          <ListingCard listingData={{blocks: this.props.blocks, name: this.state.name || " ", price: this.state.price}} voxelRenderer={this.voxelRenderer} autoOrbit />
+          <ListingCard listingData={{blocks: this.props.blocks, name: this.state.name, price: this.state.price}} voxelRenderer={this.voxelRenderer} autoOrbit />
         </div>
         <div style={{display: "grid", gridAutoColumn: "1fr", gridAutoFlow: "column", columnGap: THEME.sizing.scale600}}>
           <Button size={SIZE.compact} kind={KIND.secondary} onClick={this.props.onGoBack}> Go back </Button>
