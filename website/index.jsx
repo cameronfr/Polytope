@@ -1,7 +1,7 @@
+// React / babel stuff
 var React = require("react")
 var ReactDOM = require("react-dom")
 import { Router, Link as RawRouterLink, navigate } from "@reach/router"
-// import "core-js/stable";
 import "regenerator-runtime/runtime";
 
 // Web3 stuff
@@ -12,11 +12,10 @@ import {VoxelEditor, VoxelRenderer, FlyControls, GameState, AutomaticOrbiter, Wo
 import {Vector3, PerspectiveCamera} from 'three';
 import {ApparatusGenerator} from "./procedural.jsx"
 
-
 // Baseweb UI stuff
 const CopyToClipboard = require('clipboard-copy')
-import {Client as Styletron} from 'styletron-engine-atomic';
 import {Provider as StyletronProvider} from 'styletron-react';
+import {Client as Styletron} from 'styletron-engine-atomic';
 import {useStyletron} from 'baseui';
 import {LightTheme, BaseProvider, styled} from 'baseui';
 import { StyledLink } from "baseui/link";
@@ -68,6 +67,7 @@ import UsernameGenerator from "username-generator"
 import { decode } from "blurhash"
 import Faker from "faker"
 import RandomGen from "random-seed"
+
 
 class Datastore {
 
@@ -163,7 +163,7 @@ class App extends React.Component {
 
   async signIn() {
     if (!window.ethereum) {
-      toaster.warning(`Please use a Web3 client like Metamask`)
+      toaster.warning(`A web3 client such as Metamask is required.`)
       return
     }
     var web3 = new Web3(window.ethereum)
@@ -171,7 +171,7 @@ class App extends React.Component {
       await window.ethereum.enable()
       var networkType = await web3.eth.net.getNetworkType()
       if (networkType != "main") {
-        toaster.warning(`Client on ${networkType}, please switch to Mainnet`)
+        toaster.warning(`Client on ${networkType}, please switch to Mainnet.`)
       } else {
         var accounts = await web3.eth.getAccounts()
         var userAddress = accounts[0]
@@ -179,7 +179,7 @@ class App extends React.Component {
       }
     } catch (error) {
       console.log(error)
-      toaster.warning("Web3 permission was not granted")
+      toaster.warning("Web3 permission was not granted.")
     }
   }
 
@@ -207,8 +207,8 @@ class App extends React.Component {
 
 class Listings extends React.Component {
 
-  sideMargins = THEME.sizing.scale1000
-  topBottomMargins = THEME.sizing.scale1000
+  cardGap = THEME.sizing.scale1000
+  padding = THEME.sizing.scale1400
 
   constructor(props) {
     super(props)
@@ -227,26 +227,14 @@ class Listings extends React.Component {
 
   render() {
     var cards = [...Array(40).keys()].map(idx => {
-      return (
-        <div style={{marginRight: this.sideMargins, marginBottom: this.topBottomMargins}} key={idx} >
-          <ListingCard id={idx} voxelRenderer={this.voxelRenderer} />
-        </div>
-      )
-    })
-
-    var hiddenSpacers = [...Array(5).keys()].map(idx => {
-      return (
-        <div style={{marginRight: this.sideMargins, maxHeight:"0", visibility: "hidden", overflow: "hidden"}} key={idx+"sp"} >
-          <ListingCard id={idx} isSpacer={true} />
-        </div>
-      )
+      var card = <ListingCard key={idx} id={idx} voxelRenderer={this.voxelRenderer} />
+      return card
     })
 
     return (
       <div style={{width: "100%", height: "100%", overflow: "auto", }} ref={this.containerRef}>
-        <div style={{display: "flex", justifyContent: "center", alignItems: "start", flexWrap: "wrap", marginLeft: this.sideMargins, marginTop: this.topBottomMargins, maxWidth: "800px"}}>
+        <div style={{display: "grid", gridTemplateColumns: "repeat(3, min-content)", padding: this.padding, rowGap: this.cardGap, columnGap: this.cardGap, maxWidth: "800px"}}>
           {cards}
-          {hiddenSpacers}
         </div>
       </div>
     )
@@ -264,12 +252,10 @@ class ListingCard extends React.Component {
   }
 
   componentDidMount() {
-    if (this.props.isSpacer) {return}
     this.updateBlockDisplay()
   }
 
   componentDidUpdate() {
-    if (this.props.isSpacer) {return}
     this.cleanupBlockDisplay()
     this.updateBlockDisplay()
     //ANY prop change will cause block display to fully update. also, listeners not removed
@@ -283,7 +269,7 @@ class ListingCard extends React.Component {
       obj.addEventListener(eventName, func)
     }
 
-    var {blocks} = datastore.getListingDataById(this.props.id)
+    var {blocks} = this.props.blocks || datastore.getListingDataById(this.props.id)
 
     var gameState = new GameState({blocks})
 
@@ -317,7 +303,6 @@ class ListingCard extends React.Component {
   }
 
   componentWillUnmount() {
-    if (this.props.isSpacer) {return}
     this.cleanupBlockDisplay()
   }
 
@@ -523,9 +508,11 @@ class Header extends React.Component {
       )
     }
 
+    const farSideMargins = THEME.sizing.scale1400
+
     return (
       <HeaderNavigation style={{backgroundColor: "white"}}>
-        <StyledNavigationList $align={ALIGN.left} style={{marginLeft: THEME.sizing.scale1000}}>
+        <StyledNavigationList $align={ALIGN.left} style={{marginLeft: farSideMargins}}>
           <StyledNavigationItem style={{paddingLeft: "0"}}>
             <RouterLink to={"/"} >
               <DisplayMedium
@@ -558,7 +545,7 @@ class Header extends React.Component {
             </RouterLink>
           </StyledNavigationItem>
         </StyledNavigationList>
-        <StyledNavigationList $align={ALIGN.right} style={{marginRight: THEME.sizing.scale1000}}>
+        <StyledNavigationList $align={ALIGN.right} style={{marginRight: farSideMargins}}>
           <StyledNavigationItem>
             {profileArea}
           </StyledNavigationItem>
@@ -567,7 +554,6 @@ class Header extends React.Component {
     )
   }
 }
-
 
 var RouterLink = props => {
   var unstyledLink = <RawRouterLink {...props} style={{textDecoration: "none"}}>
@@ -578,7 +564,6 @@ var RouterLink = props => {
 
 const THEME = LightTheme
 const engine = new Styletron();
-const datastore = new Datastore();
 
 ReactDOM.render((
 	<StyletronProvider value={engine}>

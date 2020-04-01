@@ -13,7 +13,9 @@ import ndarray from "ndarray"
 import mat4 from "gl-mat4"
 import np from "ndarray-ops"
 
-import { Button, KIND as ButtonKind, SIZE as ButtonSize } from "baseui/button";
+import { Button, KIND, SIZE} from "baseui/button";
+import { Checkbox, LABEL_PLACEMENT } from "baseui/checkbox";
+
 import {LightTheme, BaseProvider, styled} from 'baseui';
 const THEME = LightTheme
 import {
@@ -42,6 +44,10 @@ import { StatefulTooltip } from "baseui/tooltip";
 import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from "baseui/icon"
 import { MdMouse } from "react-icons/md"
 import {IoMdHelpCircleOutline, IoMdHelp} from "react-icons/io"
+import { Input } from "baseui/input"
+
+// Web3 imports
+import BigNumber from "bignumber.js"
 
 
 class VoxelRenderer {
@@ -511,6 +517,8 @@ class VoxelEditor extends React.Component {
 
     this.initialize()
 
+    this.state = {atPublishDialog: false}
+
   }
 
   initialize() {
@@ -584,6 +592,7 @@ class VoxelEditor extends React.Component {
   }
 
   componentWillUnmount() {
+    this.saveGameState()
     window.cancelAnimationFrame(this.animationFrameRequestID)
     this.listeners.map(([obj, eventName, func]) => obj.removeEventListener(eventName, func))
     this.voxelRenderer.destroy()
@@ -597,19 +606,27 @@ class VoxelEditor extends React.Component {
   }
 
   render() {
+    var sidebar
+    if (this.state.atPublishDialog) {
+      sidebar = <PublishItemPanel onGoBack={() => this.setState({atPublishDialog: false})} blocks={this.gameState.blocks}/>
+    } else {
+      sidebar = <GameControlPanel gameState={this.gameState} reset={()=>this.resetGameState()} onContinue={() => this.setState({atPublishDialog: true})} />
+    }
+
+
     return (
       <div style={{width: "100%", height:"100%"}}>
-        <div style={{display: "flex", flexDirection: "row", padding: THEME.sizing.scale1000, boxSizing: "border-box", height: "100%"}}>
-          <div ref={this.containerRef} style={{flexGrow: "1", display: "flex", flexDirection: "column", }}>
-            <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "1", flexGrow: "1"}}>
-              <div style={{position: "absolute", right: "10px", top: "10px"}}>
-                <ControlsHelpTooltip />
-              </div>
-              <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
+        <div style={{display: "flex", padding: THEME.sizing.scale1400, boxSizing: "border-box", height: "100%", minHeight: "400px"}}>
+          <div ref={this.containerRef} style={{flexGrow: "1", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "1", minWidth: "200px"}}>
+            <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
+            <div style={{position: "absolute", right: "10px", top: "10px"}}>
+              <ControlsHelpTooltip />
             </div>
           </div>
-          <div style={{flexShrink: "1", height: "100%", boxSizing: "border-box", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", padding: THEME.sizing.scale600, marginLeft: THEME.sizing.scale1000}}>
-            <GameControlPanel gameState={this.gameState} reset={()=>this.resetGameState()} />
+          <div style={{}}>
+            <div style={{boxSizing: "border-box", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", padding: THEME.sizing.scale600, marginLeft: THEME.sizing.scale1400, overflowY: "scroll"}}>
+              {sidebar}
+            </div>
           </div>
         </div>
       </div>
@@ -874,9 +891,10 @@ class GameControlPanel extends React.Component {
       this.props.reset()
       this.setState({buildPlate: true})
     }
-    //grid makes text wrap to width of largest div
+    //grid makes text wrap to width of largest div if make gridTemplateColumns min-content
+      // <div style={{display: "grid", gridTemplateColumns: "min-content", height: "min-content", width: "300px"}}>
     return (
-      <div style={{display: "grid", gridTemplateColumns: "min-content"}}>
+      <div style={{display: "grid", height: "min-content", width: "250px"}}>
         <LabelMedium>
           Control
         </LabelMedium>
@@ -887,11 +905,78 @@ class GameControlPanel extends React.Component {
         <Caption1>
           Show or hide the build plate. It will not show up in your final item.
         </Caption1>
-        <Button size={ButtonSize.compact} kind={ButtonKind.secondary} onClick={() => this.toggleBuildPlate()}> Toggle build plate </Button>
-      <ResetButtonWithConfirm onConfirmed={onResetConfirm}/>
+        <Button size={SIZE.compact} kind={KIND.secondary} onClick={() => this.toggleBuildPlate()}> Toggle build plate </Button>
+        <ResetButtonWithConfirm onConfirmed={onResetConfirm}/>
+        <Caption1>
+          Continue to publishing item
+        </Caption1>
+        <Button size={SIZE.compact} kind={KIND.primary} onClick={this.props.onContinue}>Continue</Button>
       </div>
     )
+  }
+}
 
+class PublishItemPanel extends React.Component {
+  constructor(props) {
+    super(props)
+    // should take ndarray blockdata as input
+
+    this.voxelRenderer = new VoxelRenderer({pixelRatio:window.devicePixelRatio})
+
+    this.state = {
+      forSale: false,
+      price: "",
+      name: "",
+    }
+
+  }
+
+  ethStringToWei(amountString) {
+    const ETH_DECIMALS = 18
+    var tokenMultiplier = BigNumber(10).pow(BigNumber(ETH_DECIMALS))
+    var convertedAmount = tokenMultiplier.multipliedBy(BigNumber(amountString))
+    return convertedAmount
+  }
+
+  render() {
+    var priceValid = !this.ethStringToWei(this.state.price).isNaN()
+    var allInputValidated = false
+        // <ArrowLeft size={28} />
+
+    var priceArea = <div style={{display: "grid", gridTemplateColumns: "min-content 1fr", whiteSpace: "nowrap", alignItems: "center", columnGap: THEME.sizing.scale600}}>
+      <Checkbox checked={this.state.forSale} onChange={e => this.setState({forSale: e.target.checked})} labelPlacement={LABEL_PLACEMENT.right}>
+        For sale
+      </Checkbox>
+      <div style={{visibility: this.state.forSale ? "unset" : "hidden"}}>
+        <Input size={SIZE.compact} placeholder={"price"} onChange={e => this.setState({price: e.target.value})} endEnhancer={"ETH"} error={this.state.price && !priceValid}/>
+      </div>
+
+    </div>
+
+
+    return <>
+      <div style={{display: "grid", gridTemplateColumns: "1fr", height: "min-content", width: "250px"}}>
+        <LabelMedium>
+          Publish
+        </LabelMedium>
+        <Caption1>
+          Name of the item
+        </Caption1>
+        <Input size={SIZE.compact} placeholder={"Item name"} value={this.state.name} onChange={e => this.setState({name: e.target.value})} />
+        <Caption1>
+          Whether to list on the store. You can always change this later.
+        </Caption1>
+        {priceArea}
+        <Caption1>
+          See preview below
+        </Caption1>
+        <div style={{display: "grid", gridAutoColumn: "1fr", gridAutoFlow: "column", columnGap: THEME.sizing.scale600}}>
+          <Button size={SIZE.compact} kind={KIND.secondary} onClick={this.props.onGoBack}> Go back </Button>
+          <Button size={SIZE.compact} kind={KIND.primary} onClick={true} disabled={!allInputValidated}>Publish</Button>
+        </div>
+      </div>
+      <ListingCard blocks={this.props.blocks} voxelRenderer={this.voxelRenderer} />
+    </>
 
   }
 }
@@ -915,7 +1000,7 @@ class ResetButtonWithConfirm extends React.Component {
 
     var notAwaiting = <>
       <Caption1>Reset to a blank slate</Caption1>
-      <Button size={ButtonSize.compact} kind={ButtonKind.secondary} onClick={setToConsideration}>Reset build</Button>
+      <Button size={SIZE.compact} kind={KIND.secondary} onClick={setToConsideration}>Reset build</Button>
     </>
 
     var cancelTimeouts = () => this.state.timeouts.map(timeout => window.clearTimeout(timeout))
@@ -931,8 +1016,8 @@ class ResetButtonWithConfirm extends React.Component {
     var awaiting = <>
       <Caption1>Are you sure?</Caption1>
       <div style={{display: "flex"}}>
-        <Button size={ButtonSize.compact} kind={ButtonKind.secondary} onClick={confirm} disabled={this.state.disabledDuringConfirmation}>Confirm</Button>
-        <Button size={ButtonSize.compact} kind={ButtonKind.secondary} onClick={cancel} disabled={this.state.disabledDuringConfirmation} style={{flexGrow: "1", marginLeft: "10px"}}>Cancel</Button>
+        <Button size={SIZE.compact} kind={KIND.secondary} onClick={confirm} disabled={this.state.disabledDuringConfirmation}>Confirm</Button>
+        <Button size={SIZE.compact} kind={KIND.secondary} onClick={cancel} disabled={this.state.disabledDuringConfirmation} style={{flexGrow: "1", marginLeft: "10px"}}>Cancel</Button>
       </div>
     </>
 
@@ -1090,7 +1175,7 @@ class FlyControls {
     obj.addEventListener(eventName, func)
   }
 
-  componentWillUnmount() {
+  destroy() {
     this.listeners.map(([obj, eventName, func]) => obj.removeEventListener(eventName, func))
   }
 
