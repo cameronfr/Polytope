@@ -283,13 +283,13 @@ class Listings extends React.Component {
   }
 
   render() {
-    var cards = [...Array(40).keys()].map(idx => {
-      var card = <ListingCard key={idx} id={idx} voxelRenderer={this.voxelRenderer} imageSize={250} />
+    var cards = [...Array(45).keys()].map(idx => {
+      var card = <ListingCard key={idx} id={idx} voxelRenderer={this.voxelRenderer} imageSize={200} />
       return card
     })
 
     return (
-      <div style={{display: "grid", gridTemplateColumns: "repeat(auto-fill, 250px)", justifyContent: "center", rowGap: this.cardGap, columnGap: this.cardGap, /*maxWidth: "800px",*/ margin: this.sidesGap}}>
+      <div style={{display: "grid", gridTemplateColumns: "repeat(auto-fill, 200px)", justifyContent: "center", rowGap: this.cardGap, columnGap: this.cardGap, /*maxWidth: "800px",*/ margin: this.sidesGap}}>
         {cards}
       </div>
     )
@@ -1541,7 +1541,11 @@ class PublishItemPanel extends React.Component {
 
     this.voxelRenderer = new VoxelRenderer({pixelRatio:window.devicePixelRatio})
 
-    this.state = {
+    var savedState
+    try {savedState = JSON.parse(window.localStorage.getItem("publishItemPanelState"))}
+    catch(e) {console.log(e)}
+
+    this.state = savedState || {
       forSale: false,
       price: "",
       name: "",
@@ -1552,6 +1556,16 @@ class PublishItemPanel extends React.Component {
 
   componentWillUnmount() {
     this.voxelRenderer.destroy()
+  }
+
+  componentDidUpdate() {
+    window.localStorage.setItem("publishItemPanelState", JSON.stringify(this.state))
+  }
+
+  onMint() {
+    // finished =>
+    // clear localstorage
+    // reset blocks
   }
 
   ethStringToWei(amountString) {
