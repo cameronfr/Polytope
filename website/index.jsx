@@ -1,7 +1,7 @@
 // React / babel stuff
 var React = require("react")
 var ReactDOM = require("react-dom")
-import { Router, Link as RawRouterLink, navigate } from "@reach/router"
+import { Router, Link as RawRouterLink, navigate, Redirect} from "@reach/router"
 import "regenerator-runtime/runtime";
 
 // Web3 stuff
@@ -33,6 +33,7 @@ import { StatefulTooltip } from "baseui/tooltip";
 import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from "baseui/icon"
 import { MdMouse } from "react-icons/md"
 import {IoMdHelpCircleOutline, IoMdHelp} from "react-icons/io"
+import { Navigation } from "baseui/side-navigation";
 
 // Web3 imports
 import BigNumber from "bignumber.js"
@@ -205,16 +206,18 @@ class App extends React.Component {
 
   render() {
     return (
-      <div style={{display: "flex", flexDirection: "column", height: "100%"}}>
+      <div style={{display: "flex", flexDirection: "column", height: "100%", minWidth: "1000px"}}>
         <ToasterContainer autoHideDuration={3000} />
         <div>
           <Header signIn={() => this.signIn()} address={this.state.userAddress} />
         </div>
+        <Router style={{height: "100%"}}>
+          <SidebarAndListings path="/home"/>
+        </Router>
         <div style={{flex: "auto", position: "relative"}}>
           <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0"}}>
-            <Router>
+            <Router primary={false}>
               <LandingPage path="/"/>
-              <Listings path="/home"/>
               <Listing path="/item/:id"/>
               <VoxelEditor path="/newItem"/>
             </Router>
@@ -225,10 +228,44 @@ class App extends React.Component {
   }
 }
 
+var SidebarAndListings = props => {
+  const sidebarItems = [
+    {title: "Cheap"},
+    {title: "New"},
+    {title: "Old"},
+    {title: "Popular"},
+    {title: "Expensive"},
+  ]
+  const navigationItems = sidebarItems.map(({title}) => ({title, itemId: "#"+title.toLowerCase()}))
+
+  const [activeSidebarId, setActiveSidebarId] = React.useState()
+
+  React.useEffect(() => {
+    const defaultSidebarId = "#popular"
+    const newSidebarId = navigationItems.map(item => item.itemId).includes(props.location.hash) ? props.location.hash : defaultSidebarId
+    setActiveSidebarId(newSidebarId)
+  })
+  var onChange = ({event, item}) => {
+    event.preventDefault()
+    navigate(item.itemId)
+  }
+  return <div style={{display: "grid", gridTemplateColumns: "auto 1fr", height: "100%"}}>
+    <div style={{width: "200px", marginLeft: THEME.sizing.scale1400, marginTop: THEME.sizing.scale1400}}>
+      <Navigation items={navigationItems} activeItemId={activeSidebarId} onChange={onChange}/>
+    </div>
+    <div style={{position: "relative"}}>
+      <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0", overflow: "auto"}}>
+        <Listings />
+      </div>
+    </div>
+  </div>
+
+}
+
 class Listings extends React.Component {
 
   cardGap = THEME.sizing.scale1000
-  padding = THEME.sizing.scale1400
+  sidesGap = THEME.sizing.scale1400
 
   constructor(props) {
     super(props)
@@ -247,15 +284,13 @@ class Listings extends React.Component {
 
   render() {
     var cards = [...Array(40).keys()].map(idx => {
-      var card = <ListingCard key={idx} id={idx} voxelRenderer={this.voxelRenderer} />
+      var card = <ListingCard key={idx} id={idx} voxelRenderer={this.voxelRenderer} imageSize={250} />
       return card
     })
 
     return (
-      <div style={{width: "100%", height: "100%", overflow: "auto", }} ref={this.containerRef}>
-        <div style={{display: "grid", gridTemplateColumns: "repeat(3, min-content)", padding: this.padding, rowGap: this.cardGap, columnGap: this.cardGap, maxWidth: "800px"}}>
-          {cards}
-        </div>
+      <div style={{display: "grid", gridTemplateColumns: "repeat(auto-fill, 250px)", justifyContent: "center", rowGap: this.cardGap, columnGap: this.cardGap, /*maxWidth: "800px",*/ margin: this.sidesGap}}>
+        {cards}
       </div>
     )
   }
@@ -264,7 +299,7 @@ class Listings extends React.Component {
 class ListingCard extends React.Component {
 
   // imageSize = 200
-  imageSize = 200
+  // imageSize = 250
 
   constructor(props) {
     super(props)
@@ -332,49 +367,55 @@ class ListingCard extends React.Component {
 
   render() {
     const { price, name } = this.props.listingData || datastore.getListingDataById(this.props.id)
-    var inner = <>
-      <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", backfaceVisibility: "hidden", position: "relative", zIndex: "1", width: "min-content"}}>
-        <div style={{height: this.imageSize+"px", width: this.imageSize+"px", position: "relative", backgroundColor: "eee"}}>
-          <div style={{position: "absolute", right: "10px", top: "10px"}}>
-            <UserAvatar id={this.props.id} size={35} />
-          </div>
-          <canvas ref={this.canvasRef} style={{width: "100%", height: "100%"}} width={this.imageSize} height={this.imageSize}></canvas>
-        </div>
-        <div style={{width: this.imageSize+"px", height: "1px", backgroundColor: "#efefef"}}></div>
-        <div style={{display: "flex", flexDirection: "column", justifyContent: "center", padding: "10px", width: this.imageSize+"px", boxSizing: "border-box"}}>
-          <LabelLarge style={{textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden"}}>
-            {name}
-          </LabelLarge>
-          <LabelSmall style={{margin: 0, textAlign: "right", marginTop: "5px"}} color={["contentSecondary"]}>
-            {price + " ETH"}
-          </LabelSmall>
-        </div>
+
+    var cardInterior = <>
+      <canvas ref={this.canvasRef} style={{height: this.props.imageSize+"px"}} width={this.props.imageSize} height={this.props.imageSize}></canvas>
+      <div style={{width: this.props.imageSize+"px", height: "1px", backgroundColor: "#efefef"}}></div>
+      <div style={{display: "flex", flexDirection: "column", justifyContent: "center", padding: "10px", width: this.props.imageSize+"px", boxSizing: "border-box", backgroundColor: THEME.colors.primaryB}}>
+        <LabelLarge style={{textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden"}}>
+          {name}
+        </LabelLarge>
+        <LabelSmall style={{margin: 0, textAlign: "right", marginTop: "5px"}} color={["contentSecondary"]}>
+          {price + " ETH"}
+        </LabelSmall>
       </div>
     </>
 
+    var inner
     if (!this.props.listingData) {
-      return <RouterLink to={`/item/${this.props.id}`}>
-        {inner}
+      inner = <RouterLink to={`/item/${this.props.id}`}>
+        {cardInterior}
       </RouterLink>
     } else {
-      return inner
+      inner = cardInterior
     }
+
+
+    return <>
+      <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", backfaceVisibility: "hidden", position: "relative", zIndex: "1", width: "min-content", width: this.imageSize+"px", position: "relative", backgroundColor: "eee"}}>
+        <div style={{position: "absolute", right: "10px", top: "10px"}}>
+          <UserAvatar id={this.props.id} size={35} />
+        </div>
+        {inner}
+      </div>
+    </>
+
   }
 }
 
 var AvatarAndName = props => {
   var {labelColor, labelStyle, ownerId, name} = props
   return (
-    <RouterLink to={`/user/${ownerId}`}>
       <div style={{display: "flex", alignItems: "center"}}>
         <div style={{paddingRight: "10px"}}>
           <UserAvatar size={35} id={ownerId}/>
         </div>
-        <LabelLarge color={[labelColor]} style={labelStyle || {}}>
-          {name}
-        </LabelLarge>
+        <RouterLink to={`/user/${ownerId}`}>
+          <LabelLarge color={[labelColor]} style={labelStyle || {}}>
+            {name}
+          </LabelLarge>
+        </RouterLink>
       </div>
-    </RouterLink>
   )
 }
 
@@ -382,6 +423,9 @@ class UserAvatar extends React.Component {
   constructor(props) {
     super(props)
     this.canvasRef = React.createRef()
+    this.state = {
+      hover: false
+    }
   }
 
   componentDidMount() {
@@ -404,15 +448,19 @@ class UserAvatar extends React.Component {
 
   render() {
     var onClick = (e => {
-      e.stopPropagation(); navigate(`/user/${this.props.id}`)
+      // e.stopPropagation(); navigate(`/user/${this.props.id}`)
     })
 
     const { avatarURL } = datastore.getUserDataById(this.props.id)
 
+    var filter = this.state.hover ? "brightness(95%)" : ""
+
     return (
-      <div onClick={onClick} style={{height: this.props.size+"px", width: this.props.size+"px", borderRadius: this.props.size/2.0+"px", backgroundColor: "#eee", cursor: "pointer", overflow: "hidden", boxShadow: "0px 0px 3px #ccc"}}>
-        <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
-      </div>
+      <RouterLink to={`/user/${this.props.id}`}>
+        <div onClick={onClick} style={{height: this.props.size+"px", width: this.props.size+"px", borderRadius: this.props.size/2.0+"px", backgroundColor: "#eee", cursor: "pointer", overflow: "hidden", boxShadow: "0px 0px 3px #ccc", filter}} onMouseOver={() => this.setState({hover: true})} onMouseLeave={() => this.setState({hover: false})}>
+          <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
+        </div>
+      </RouterLink>
     )
   }
 }
@@ -1497,6 +1545,7 @@ class PublishItemPanel extends React.Component {
       forSale: false,
       price: "",
       name: "",
+      description: "",
     }
 
   }
@@ -1523,9 +1572,11 @@ class PublishItemPanel extends React.Component {
     var priceBN = this.ethStringToWei(this.state.price)
     var priceValid = !priceBN.isNaN() && priceBN.gte(0)
 
-    var nameValid = this.state.name && (/^[a-zA-Z0-9]+$/).test(this.state.name)
+    var nameValid = this.state.name && (/^[a-zA-Z0-9 ]+$/).test(this.state.name)
 
-    var allInputValidated = priceValid
+    var descriptionValid = this.state.name && (/^[a-zA-Z0-9 ]+$/).test(this.state.description)
+
+    var allInputValidated = priceValid && nameValid && descriptionValid
         // <ArrowLeft size={28} />
 
     var priceArea = <div style={{display: "grid", gridTemplateColumns: "min-content 1fr", whiteSpace: "nowrap", alignItems: "center", columnGap: THEME.sizing.scale600}}>
@@ -1544,8 +1595,10 @@ class PublishItemPanel extends React.Component {
         <LabelMedium>
           Mint
         </LabelMedium>
-        {caption("Name of the item", "Name can only have letters and numbers", this.state.name && !nameValid)}
+        {caption("Name of the item (required)", "Name can only have letters and numbers", this.state.name && !nameValid)}
         <Input size={SIZE.compact} placeholder={"Item name"} value={this.state.name} onChange={e => {this.setState({name: e.target.value})}} />
+        {caption("Description for the item (required)", "Description can only have letters and numbers", this.state.decription && !descriptionValid)}
+        <Input size={SIZE.compact} placeholder={"Item description"} value={this.state.description} onChange={e => {this.setState({description: e.target.value})}} />
         <Caption1>
           Whether to list on the store. You can always change this later.
         </Caption1>
@@ -1554,7 +1607,7 @@ class PublishItemPanel extends React.Component {
           See a preview of your item below
         </Caption1>
         <div style={{display: "flex", justifyContent: "center", marginBottom: "1em"}}>
-          <ListingCard listingData={{blocks: this.props.blocks, name: this.state.name, price: this.state.price}} voxelRenderer={this.voxelRenderer} autoOrbit />
+          <ListingCard listingData={{blocks: this.props.blocks, name: this.state.name, price: this.state.price}} voxelRenderer={this.voxelRenderer} imageSize={250} autoOrbit />
         </div>
         <div style={{display: "grid", gridAutoColumn: "1fr", gridAutoFlow: "column", columnGap: THEME.sizing.scale600}}>
           <Button size={SIZE.compact} kind={KIND.secondary} onClick={this.props.onGoBack}> Go back </Button>
