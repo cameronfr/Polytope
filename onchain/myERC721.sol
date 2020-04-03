@@ -33,6 +33,11 @@ contract ERC721 is Context, ERC165, IERC721 {
     // Mapping from owner to operator approvals
     mapping (address => mapping (address => bool)) private _operatorApprovals;
 
+    // Metadata fields
+    string private _name = "Polytope";
+    string private constant _symbol = "PLY";
+    string private constant _baseURI = "https://app.polytope.space/token/";
+
     /*
      *     bytes4(keccak256('balanceOf(address)')) == 0x70a08231
      *     bytes4(keccak256('ownerOf(uint256)')) == 0x6352211e
@@ -48,10 +53,32 @@ contract ERC721 is Context, ERC165, IERC721 {
      *        0xa22cb465 ^ 0xe985e9c ^ 0x23b872dd ^ 0x42842e0e ^ 0xb88d4fde == 0x80ac58cd
      */
     bytes4 private constant _INTERFACE_ID_ERC721 = 0x80ac58cd;
+    bytes4 private constant _INTERFACE_ID_ERC721_METADATA = 0x5b5e139f;
 
     constructor () public {
         // register the supported interfaces to conform to ERC721 via ERC165
         _registerInterface(_INTERFACE_ID_ERC721);
+        _registerInterface(_INTERFACE_ID_ERC721_METADATA);
+    }
+
+    /**
+     * @dev Gets the token name.
+     * @return string representing the token name
+     */
+    function name() external view returns (string memory) {
+        return _name;
+    }
+
+    /**
+     * @dev Gets the token symbol.
+     * @return string representing the token symbol
+     */
+    function symbol() external view returns (string memory) {
+        return _symbol;
+    }
+    
+    function tokenURI(uint256 _tokenId) external view returns (string memory) {
+      return string(abi.encodePacked(_baseURI, _tokenId, ".json"));
     }
 
     /**
