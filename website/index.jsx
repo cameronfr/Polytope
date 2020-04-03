@@ -148,7 +148,11 @@ class Datastore {
     range.forEach(() => gen.randomRectangularPrism())
     const blocks = gen.blocks
 
-    const data = {price, name, ownerId, blocks}
+    var description = Sentencer.make([...Array(Math.floor(Math.random()*15))].map(i => "{{noun}}").join(" "))
+
+    var authorId = id+10
+
+    const data = {price, name, ownerId, blocks, description, authorId}
     this.listingCache[id] = data
     return data
   }
@@ -284,12 +288,12 @@ class Listings extends React.Component {
 
   render() {
     var cards = [...Array(45).keys()].map(idx => {
-      var card = <ListingCard key={idx} id={idx} voxelRenderer={this.voxelRenderer} imageSize={200} />
+      var card = <ListingCard key={idx} id={idx} voxelRenderer={this.voxelRenderer} imageSize={220} />
       return card
     })
 
     return (
-      <div style={{display: "grid", gridTemplateColumns: "repeat(auto-fill, 200px)", justifyContent: "center", rowGap: this.cardGap, columnGap: this.cardGap, /*maxWidth: "800px",*/ margin: this.sidesGap}}>
+      <div style={{display: "grid", gridTemplateColumns: "repeat(auto-fill, 220px)", justifyContent: "center", rowGap: this.cardGap, columnGap: this.cardGap, maxWidth: "1100px", margin: this.sidesGap}}>
         {cards}
       </div>
     )
@@ -366,7 +370,7 @@ class ListingCard extends React.Component {
   }
 
   render() {
-    const { price, name } = this.props.listingData || datastore.getListingDataById(this.props.id)
+    const { price, name, description } = this.props.listingData || datastore.getListingDataById(this.props.id)
 
     var cardInterior = <>
       <canvas ref={this.canvasRef} style={{height: this.props.imageSize+"px"}} width={this.props.imageSize} height={this.props.imageSize}></canvas>
@@ -375,6 +379,9 @@ class ListingCard extends React.Component {
         <LabelLarge style={{textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden"}}>
           {name}
         </LabelLarge>
+        <ParagraphSmall color={["colorSecondary"]} style={{whiteSpace: "nowrap", overflow:"hidden", textOverflow: "ellipsis", margin: "5px 0px 0px 0px"}}>
+          {description || " "}
+        </ParagraphSmall>
         <LabelSmall style={{margin: 0, textAlign: "right", marginTop: "5px"}} color={["contentSecondary"]}>
           {price + " ETH"}
         </LabelSmall>
@@ -468,7 +475,6 @@ class UserAvatar extends React.Component {
 class Listing extends React.Component {
 
   viewAreaSize = 500
-  blockMargins = 40
 
   constructor(props) {
     super(props)
@@ -517,28 +523,37 @@ class Listing extends React.Component {
   }
 
   render() {
-    const { price, name, ownerId } = datastore.getListingDataById(this.props.id)
+    const { price, name, ownerId, authorId, description } = datastore.getListingDataById(this.props.id)
     const owner = datastore.getUserDataById(ownerId)
+    const author = datastore.getUserDataById(authorId)
+    const blockMargins = 28
 
     return (
-        <div style={{display: "flex", justifyContent: "center", alignItems: "center", padding: "20px"}}>
+        <div style={{display: "flex", justifyContent: "center", alignItems: "center", padding: "28px"}}>
           <div style={{display: "flex", flexWrap: "wrap"}}>
-            <div style={{width: this.viewAreaSize+"px", height: this.viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", margin: this.blockMargins+"px", position: "relative", zIndex: "1"}}>
+            <div style={{width: this.viewAreaSize+"px", height: this.viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", margin: blockMargins+"px", position: "relative", zIndex: "1"}}>
               <div style={{position: "absolute", top:"10px", right: "10px"}}>
                 <ControlsHelpTooltip hideEditControls/>
               </div>
               <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
             </div>
-            <div style={{width: this.viewAreaSize+"px", maxWidth: this.viewAreaSize + "px", display: "flex", flexDirection: "column", margin: this.blockMargins+"px"}}>
+            <div style={{/*width: this.viewAreaSize+"px",*/flexBasis: "min-content", flexGrow: "1", maxWidth: this.viewAreaSize + "px", display: "flex", flexDirection: "column", margin: blockMargins+"px"}}>
               <DisplaySmall color={["colorSecondary"]}>
                 {name}
               </DisplaySmall>
-                <div style={{display: "flex", marginTop: "10px", alignItems: "center", paddingLeft: "2px"}}>
-                  <LabelLarge color={["colorSecondary"]} style={{marginRight: "10px"}}>
-                    {"Owned by"}
-                  </LabelLarge>
-                  <AvatarAndName ownerId={ownerId} name={owner.name} labelColor={"colorSecondary"} />
-                </div>
+              <div style={{display: "grid", gridTemplateColumns: "repeat(2, min-content)", alignItems: "center", marginTop: "25px", paddingLeft: "2px", rowGap: "20px"}}>
+                <LabelLarge color={["colorSecondary"]} style={{marginRight: "10px", whiteSpace: "nowrap"}}>
+                  {"Owner is"}
+                </LabelLarge>
+                <AvatarAndName ownerId={ownerId} name={owner.name} labelColor={"colorSecondary"} />
+                <LabelLarge color={["colorSecondary"]} style={{marginRight: "10px", whiteSpace: "nowrap", textAlign: "left"}}>
+                  {"Maker is"}
+                </LabelLarge>
+                <AvatarAndName ownerId={authorId} name={author.name} labelColor={"colorSecondary"} />
+              </div>
+              <ParagraphMedium style={{marginTop: "25px", paddingLeft: "2px", lineHeight: "2em"}}>
+                {description}
+              </ParagraphMedium>
             </div>
           </div>
         </div>
@@ -1621,7 +1636,7 @@ class PublishItemPanel extends React.Component {
           See a preview of your item below
         </Caption1>
         <div style={{display: "flex", justifyContent: "center", marginBottom: "1em"}}>
-          <ListingCard listingData={{blocks: this.props.blocks, name: this.state.name, price: this.state.price}} voxelRenderer={this.voxelRenderer} imageSize={250} autoOrbit />
+          <ListingCard listingData={{blocks: this.props.blocks, name: this.state.name, price: this.state.price, description: this.state.description}} voxelRenderer={this.voxelRenderer} imageSize={220} autoOrbit />
         </div>
         <div style={{display: "grid", gridAutoColumn: "1fr", gridAutoFlow: "column", columnGap: THEME.sizing.scale600}}>
           <Button size={SIZE.compact} kind={KIND.secondary} onClick={this.props.onGoBack}> Go back </Button>
@@ -2046,9 +2061,11 @@ class FlyControls {
     this.mouseMoveBuffer = {x: 0, y: 0}
 
     // adding blocks, removing blocks, block highlight
-    this.interactionEnabled && this.interactionTick(cameraDirection)
-    this.clickBuffer.rightClick = 0
-    this.clickBuffer.click = 0
+    if (!this.interactionEnabled) {
+      this.clickBuffer = {rightClick: 0, click: 0} //still run tick so we can get block outlines so people can count blocks
+    }
+    this.interactionTick(cameraDirection)
+    this.clickBuffer = {rightClick: 0, click: 0}
   }
 }
 
