@@ -76,9 +76,26 @@ contract ERC721 is Context, ERC165, IERC721 {
     function symbol() external view returns (string memory) {
         return _symbol;
     }
-    
+
     function tokenURI(uint256 _tokenId) external view returns (string memory) {
-      return string(abi.encodePacked(_baseURI, _tokenId, ".json"));
+      return string(abi.encodePacked(_baseURI, _uint2hex(_tokenId), ".json"));
+    }
+
+    function _uint2hex(uint256 _val) internal pure returns (string memory _uintAsString) {
+      uint256 len = 64;
+      uint256 remaining = _val;
+      bytes memory bstr = new bytes(len);
+      uint256 k = len - 1;
+
+      // get ascii
+      for (uint256 i = 0; i < len; i++) {
+        uint256 mod = remaining % 16;
+        bstr[k--] = byte(uint8(mod < 10 ? (mod + 48) : (mod - 10 + 97)));
+        remaining /= 16;
+      }
+
+      // Convert to string
+      return string(bstr);
     }
 
     /**
