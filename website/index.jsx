@@ -5,7 +5,9 @@ import { Router, Link as RawRouterLink, navigate, Redirect} from "@reach/router"
 import "regenerator-runtime/runtime";
 
 // Web3 stuff
-var Web3 = require("web3");
+// var Web3 = require("web3");
+var Web3Eth = require('web3-eth');
+var Web3Utils = require('web3-utils');
 
 // Voxel Stuff
 import {ApparatusGenerator} from "./procedural.jsx"
@@ -140,7 +142,7 @@ class Datastore {
     const price = Math.round(Math.random()*100)/100
     var name = Sentencer.make("{{ adjective }} {{ noun }}")
     name = name[0].toUpperCase() + name.slice(1, name.length)
-    const ownerId = id
+    const ownerId = Web3Utils.sha3(id.toString()).slice(0, 42)
 
     const worldSize = new Vector3(17, 17, 17)
     var gen = (new WorldGenerator({worldSize}))//.worldWithPlate()
@@ -191,7 +193,7 @@ class App extends React.Component {
       toaster.warning(`A web3 client such as Metamask is required.`)
       return
     }
-    var web3 = new Web3(window.ethereum)
+    var web3 = new Web3Eth(window.ethereum)
     try {
       await window.ethereum.enable()
       var networkType = await web3.eth.net.getNetworkType()
@@ -217,6 +219,7 @@ class App extends React.Component {
         </div>
         <Router style={{height: "100%"}}>
           <SidebarAndListings path="/home"/>
+          <UserProfile path="/user/:id"/>
         </Router>
         <div style={{flex: "auto", position: "relative"}}>
           <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0"}}>
@@ -266,6 +269,41 @@ var SidebarAndListings = props => {
 
 }
 
+var UserProfile = props => {
+  var canvasRef = React.useRef()
+
+  React.useEffect(() => {
+    var {width, height} = canvasRef.current.getBoundingClientRect()
+    canvasRef.current.width = width * window.devicePixelRatio
+    canvasRef.current.height = height * window.devicePixelRatio
+    datastore.generateRandomApparatus(canvasRef.current, props.id)
+  }, [props.id])
+
+  const profilePicSize = 200
+  var {name} = datastore.getUserDataById(props.id)
+  var address = props.id
+
+  return <div style={{display: "grid", gridTemplateColumns: "auto 1fr", height: "100%"}}>
+    <div style={{width: "200px", marginLeft: THEME.sizing.scale1400, marginTop: THEME.sizing.scale1400}}>
+      <div style={{display: "grid", gridTemplateColumns: "auto", textAlign:"center"}}>
+        <canvas ref={canvasRef} style={{height: profilePicSize+"px", width: profilePicSize+"px", borderRadius: (profilePicSize/2)+"px", boxShadow: "0px 0px 5px #ccc", backgroundColor: "#eee"}}/>
+        <HeadingSmall style={{margin: "15px 0px"}}>
+          {name}
+        </HeadingSmall>
+        <LabelSmall style={{overflow: "auto"}} color={["contentSecondary"]}>
+          {address}
+        </LabelSmall>
+      </div>
+    </div>
+    <div style={{position: "relative"}}>
+      <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0", overflow: "auto"}}>
+        <Listings />
+      </div>
+    </div>
+  </div>
+
+}
+
 class Listings extends React.Component {
 
   cardGap = THEME.sizing.scale1000
@@ -288,7 +326,8 @@ class Listings extends React.Component {
 
   render() {
     var cards = [...Array(45).keys()].map(idx => {
-      var card = <ListingCard key={idx} id={idx} voxelRenderer={this.voxelRenderer} imageSize={220} />
+      var itemId = Web3Utils.sha3(idx.toString())
+      var card = <ListingCard key={idx} id={itemId} voxelRenderer={this.voxelRenderer} imageSize={220} />
       return card
     })
 
@@ -370,7 +409,7 @@ class ListingCard extends React.Component {
   }
 
   render() {
-    const { price, name, description } = this.props.listingData || datastore.getListingDataById(this.props.id)
+    const { price, name, description, notForSale, authorId, ownerId } = this.props.listingData || datastore.getListingDataById(this.props.id)
 
     var cardInterior = <>
       <canvas ref={this.canvasRef} style={{height: this.props.imageSize+"px"}} width={this.props.imageSize} height={this.props.imageSize}></canvas>
@@ -383,7 +422,7 @@ class ListingCard extends React.Component {
           {description || " "}
         </ParagraphSmall>
         <LabelSmall style={{margin: 0, textAlign: "right", marginTop: "5px"}} color={["contentSecondary"]}>
-          {price + " ETH"}
+          {notForSale ? "Not For Sale" : price + " ETH"}
         </LabelSmall>
       </div>
     </>
@@ -401,7 +440,7 @@ class ListingCard extends React.Component {
     return <>
       <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", backfaceVisibility: "hidden", position: "relative", zIndex: "1", width: "min-content", width: this.imageSize+"px", position: "relative", backgroundColor: "eee"}}>
         <div style={{position: "absolute", right: "10px", top: "10px"}}>
-          <UserAvatar id={this.props.id} size={35} />
+          <UserAvatar id={ownerId} size={35} />
         </div>
         {inner}
       </div>
@@ -1636,7 +1675,7 @@ class PublishItemPanel extends React.Component {
           See a preview of your item below
         </Caption1>
         <div style={{display: "flex", justifyContent: "center", marginBottom: "1em"}}>
-          <ListingCard listingData={{blocks: this.props.blocks, name: this.state.name, price: this.state.price, description: this.state.description}} voxelRenderer={this.voxelRenderer} imageSize={220} autoOrbit />
+          <ListingCard listingData={{blocks: this.props.blocks, name: this.state.name, price: this.state.price, notForSale: !this.state.forSale, description: this.state.description}} voxelRenderer={this.voxelRenderer} imageSize={220} autoOrbit />
         </div>
         <div style={{display: "grid", gridAutoColumn: "1fr", gridAutoFlow: "column", columnGap: THEME.sizing.scale600}}>
           <Button size={SIZE.compact} kind={KIND.secondary} onClick={this.props.onGoBack}> Go back </Button>
