@@ -3,7 +3,6 @@ import os
 from flask import Flask, make_response, request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from flask_cors import CORS
 
 # import logging
 
