@@ -1,10 +1,10 @@
-import os
-
 from flask import Flask, make_response, request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
-# import logging
+import os
+import logging
+import google.cloud.logging
 
 from google.cloud import datastore
 
@@ -13,6 +13,9 @@ from eth_account.messages import defunct_hash_message
 import re
 import time
 
+client = google.cloud.logging.Client()
+client.setup_logging()
+
 app = Flask(__name__)
 limiter = Limiter(
     app,
@@ -20,17 +23,16 @@ limiter = Limiter(
     default_limits=["1440 per day", "60 per hour"]
 )
 
-corsOrigin = "https://polytope.space"
+corsOrigins = ["https://polytope.space", "https://localhost:1234"]
 
 @app.after_request
 def addCORS(response):
-    app.logger.info(f"response is {response}")
-    app.logger.warn(f"request is {request}")
-    response.headers["Access-Control-Allow-Origin"] = corsOrigin
-    if request.method == "OPTIONS":
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
-        response.headers["Access-Control-Max-Age"] = "86400"
+    if "HTTP_ORIGIN" in request.environ and request.environ["HTTP_ORIGIN"] in corsOrigins:
+        response.headers["Access-Control-Allow-Origin"] = request.environ['HTTP_ORIGIN']
+        if request.method == "OPTIONS":
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+            response.headers["Access-Control-Max-Age"] = "86400"
     return response
 
 @app.route("/")
@@ -68,8 +70,9 @@ def changeUserSettings():
     datastoreClient.put(user)
 
     ipAddress = flask_limiter.util.get_remote_address()
-    print(f"Updated user {address} to name {name} and email {email}. Request from ip {ipAddress}.")
+    logging.info(f"Updated user {address} to name {name} and email {email}. Request from ip {ipAddress}.")
     return make_reponse("success", 200)
 
+# gunicorn does not run this
 if __name__ == "__main__":
     app.run(debug=True,host="0.0.0.0",port=int(os.environ.get("PORT", 8080)))
