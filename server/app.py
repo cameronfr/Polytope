@@ -1,6 +1,6 @@
 import os
 
-from flask import Flask
+from flask import Flask, make_response
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_cors import CORS
@@ -18,7 +18,18 @@ limiter = Limiter(
     key_func=get_remote_address,
     default_limits=["1440 per day", "60 per hour"]
 )
-CORS(app, origins=["https://polytope.space"])
+
+corsOrigin = "https://polytope.space"
+
+@app.after_request
+def addCORS(response):
+    print("reponse is", response)
+    reponse.headers["Access-Control-Allow-Origin"] = corsOrigin
+    if request.method == "OPTIONS":
+        reponse.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT"
+        reponse.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        reponse.headers["Access-Control-Max-Age"] = "86400"
+    return response
 
 @app.route("/")
 def hello_world():
@@ -56,6 +67,7 @@ def changeUserSettings():
 
     ipAddress = flask_limiter.util.get_remote_address()
     print(f"Updated user {address} to name {name} and email {email}. Request from ip {ipAddress}.")
+    return make_reponse("success", 200)
 
 if __name__ == "__main__":
     app.run(debug=True,host="0.0.0.0",port=int(os.environ.get("PORT", 8080)))
