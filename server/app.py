@@ -27,6 +27,8 @@ corsOrigins = ["https://polytope.space", "https://localhost:1234"]
 
 @app.after_request
 def addCORS(response):
+    logger.info(f"Request remote_addr is {request.remote_address}")
+    logger.info(f"request environ is {request.environ}")
     if "HTTP_ORIGIN" in request.environ and request.environ["HTTP_ORIGIN"] in corsOrigins:
         response.headers["Access-Control-Allow-Origin"] = request.environ['HTTP_ORIGIN']
         if request.method == "OPTIONS":
@@ -71,7 +73,7 @@ def changeUserSettings():
 
     ipAddress = get_remote_address()
     logging.info(f"Updated user {address} to name {username} and email {email}. Request from ip {ipAddress}.")
-    return make_reponse("success", 200)
+    return make_response("success", 200)
 
 # gunicorn does not run this
 if __name__ == "__main__":
