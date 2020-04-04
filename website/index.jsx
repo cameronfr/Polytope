@@ -83,6 +83,7 @@ import UsernameGenerator from "username-generator"
 import { decode } from "blurhash"
 import RandomGen from "random-seed"
 
+const APIEndpoint = "https://app.polytope.space"
 
 class Datastore {
 
@@ -172,6 +173,22 @@ class Datastore {
     var data = {name, avatarURL}
     this.userCache[id] = data
     return data
+  }
+
+  async callEndpoint(endpointFunction, dataDict, method) {
+    var res = await fetch(APIEndpoint+endpointFunction, {
+      method,
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(dataDict)
+    })
+    return res
+  }
+
+  async setUserData(messageData) {
+    const {address, message, signature} = messageData //assertion of sorts
+    var res = await this.callEndpoint("/userSettings", messageData, "POST") //will error if fails
   }
 
 }
@@ -321,11 +338,12 @@ var UserProfile = props => {
     var web3 = props.web3Data.web3
     var address = props.web3Data.userAddress
     var validUntil = Math.floor(Date.now()/1000) + 60
-    var message = `I'm updating my preferences on Polytope to\nusername: ${username}\nemail:  ${email}\nThis request is valid until ${validUntil}`
+    var signature
+    var message = `I'm updating my preferences on Polytope with the username ${username} and the email ${email}. This request is valid until ${validUntil}`
     setNotification("")
     try {
       setWaiting("Waiting for signature")
-      const signature = await web3.eth.personal.sign(message, address);
+      signature = await web3.eth.personal.sign(Web3Utils.fromUtf8(message), address);
     } catch(e) {
       console.log(e)
       setNotification("Signature was not given")
@@ -334,7 +352,8 @@ var UserProfile = props => {
     }
     try {
       setWaiting("Uploading to server")
-      // upload
+      await datastore.setUserData({message, address, signature})
+      // upload. server checks sig, validates username, sets datastore, returns error or not
       // get response, might be error if sig invalid
       // datastore.flushCache(userId)
       setIsEditing(false)
