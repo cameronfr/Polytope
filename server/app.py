@@ -24,11 +24,11 @@ corsOrigin = "https://polytope.space"
 @app.after_request
 def addCORS(response):
     print("reponse is", response)
-    reponse.headers["Access-Control-Allow-Origin"] = corsOrigin
+    response.headers["Access-Control-Allow-Origin"] = corsOrigin
     if request.method == "OPTIONS":
-        reponse.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT"
-        reponse.headers["Access-Control-Allow-Headers"] = "Content-Type"
-        reponse.headers["Access-Control-Max-Age"] = "86400"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        response.headers["Access-Control-Max-Age"] = "86400"
     return response
 
 @app.route("/")
