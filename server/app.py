@@ -1,6 +1,6 @@
 from flask import Flask, make_response, request
 from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
+from flask_limiter.util import get_ipaddr
 
 import os
 import logging
@@ -19,7 +19,7 @@ client.setup_logging()
 app = Flask(__name__)
 limiter = Limiter(
     app,
-    key_func=get_remote_address,
+    key_func=get_ipaddr,
     default_limits=["1440 per day", "60 per hour"]
 )
 
@@ -27,7 +27,6 @@ corsOrigins = ["https://polytope.space", "https://localhost:1234"]
 
 @app.after_request
 def addCORS(response):
-    logging.info(f"request environ is {request.environ}")
     if "HTTP_ORIGIN" in request.environ and request.environ["HTTP_ORIGIN"] in corsOrigins:
         response.headers["Access-Control-Allow-Origin"] = request.environ['HTTP_ORIGIN']
         if request.method == "OPTIONS":
@@ -70,7 +69,7 @@ def changeUserSettings():
     user["username"] = username
     datastoreClient.put(user)
 
-    ipAddress = get_remote_address()
+    ipAddress = get_ipaddr() #x-forwarded-for, from cloud run
     logging.info(f"Updated user {address} to name {username} and email {email}. Request from ip {ipAddress}.")
     return make_response("success", 200)
 
