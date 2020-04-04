@@ -27,8 +27,8 @@ corsOrigins = ["https://polytope.space", "https://localhost:1234"]
 
 @app.after_request
 def addCORS(response):
-    logger.info(f"Request remote_addr is {request.remote_address}")
-    logger.info(f"request environ is {request.environ}")
+    logging.info(f"Request remote_addr is {request.remote_address}")
+    logging.info(f"request environ is {request.environ}")
     if "HTTP_ORIGIN" in request.environ and request.environ["HTTP_ORIGIN"] in corsOrigins:
         response.headers["Access-Control-Allow-Origin"] = request.environ['HTTP_ORIGIN']
         if request.method == "OPTIONS":
