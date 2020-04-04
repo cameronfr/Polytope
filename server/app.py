@@ -3,6 +3,8 @@ import os
 from flask import Flask
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from flask_cors import CORS
+
 from google.cloud import datastore
 
 from web3.auto import w3
@@ -16,6 +18,7 @@ limiter = Limiter(
     key_func=get_remote_address,
     default_limits=["1440 per day", "60 per hour"]
 )
+CORS(app, origins=["https://polytope.space"])
 
 @app.route("/")
 def hello_world():
