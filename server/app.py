@@ -1,9 +1,11 @@
 import os
 
-from flask import Flask, make_response
+from flask import Flask, make_response, request
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_cors import CORS
+
+# import logging
 
 from google.cloud import datastore
 
@@ -23,7 +25,8 @@ corsOrigin = "https://polytope.space"
 
 @app.after_request
 def addCORS(response):
-    print("reponse is", response)
+    app.logger.info(f"response is {response}")
+    app.logger.warn(f"request is {request}")
     response.headers["Access-Control-Allow-Origin"] = corsOrigin
     if request.method == "OPTIONS":
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT"
