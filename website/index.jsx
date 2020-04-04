@@ -28,7 +28,7 @@ import { StyledLink } from "baseui/link";
 import { Button, KIND, SIZE } from "baseui/button";
 import { Input as InputBroken } from "baseui/input"
 import { Search } from "baseui/icon";
-// import { Notification, KIND} from "baseui/notification";
+import { Notification, KIND as NotificationKind} from "baseui/notification";
 import { toaster, ToasterContainer } from "baseui/toast";
 import { Checkbox, LABEL_PLACEMENT } from "baseui/checkbox";
 import { StatefulTooltip } from "baseui/tooltip";
@@ -36,6 +36,7 @@ import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from "baseui/icon"
 import { MdMouse } from "react-icons/md"
 import {IoMdHelpCircleOutline, IoMdHelp} from "react-icons/io"
 import { Navigation } from "baseui/side-navigation";
+import { Spinner } from "baseui/spinner";
 
 // Web3 imports
 import BigNumber from "bignumber.js"
@@ -193,7 +194,8 @@ class App extends React.Component {
       toaster.warning(`A web3 client such as Metamask is required.`)
       return
     }
-    var web3 = new Web3Eth(window.ethereum)
+    var web3 = {}
+    web3.eth = new Web3Eth(window.ethereum)
     try {
       await window.ethereum.enable()
       var networkType = await web3.eth.net.getNetworkType()
@@ -211,15 +213,17 @@ class App extends React.Component {
   }
 
   render() {
+    var {userAddress, web3} = this.state
+    var web3Data = {userAddress, web3}
     return (
       <div style={{display: "flex", flexDirection: "column", height: "100%", minWidth: "1000px"}}>
-        <ToasterContainer autoHideDuration={3000} />
+        <ToasterContainer autoHideDuration={3000} overrides={{Root: {style: () => ({zIndex: 2})}}}/>
         <div>
           <Header signIn={() => this.signIn()} address={this.state.userAddress} />
         </div>
         <Router style={{height: "100%"}}>
           <SidebarAndListings path="/home"/>
-          <UserProfile path="/user/:id"/>
+          <UserProfile web3Data={web3Data} path="/user/:id"/>
         </Router>
         <div style={{flex: "auto", position: "relative"}}>
           <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0"}}>
@@ -271,6 +275,7 @@ var SidebarAndListings = props => {
 
 var UserProfile = props => {
   var canvasRef = React.useRef()
+  var {name} = datastore.getUserDataById(props.id)
 
   React.useEffect(() => {
     var {width, height} = canvasRef.current.getBoundingClientRect()
@@ -280,16 +285,93 @@ var UserProfile = props => {
   }, [props.id])
 
   const profilePicSize = 200
-  var {name} = datastore.getUserDataById(props.id)
   var address = props.id
+
+
+  const [isEditing, setIsEditing] = React.useState(false)
+  var editButton = null
+  // if (props.web3Data.userAddress == props.id) {
+    editButton = <Caption2 onClick={() => setIsEditing(true)}style={{marginLeft: "4px", textDecoration:"underline", lineHeight: "24px", cursor:"pointer"}}>edit</Caption2>
+  // }
+
+  var displayHtml = <>
+    <div style={{display: "grid", gridTemplateColumns: "repeat(2, minmax(auto, min-content))", justifyContent: "center", alignItems: "end"}} >
+      <HeadingSmall style={{margin: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"}}>
+        {name}
+      </HeadingSmall>
+      {editButton}
+    </div>
+  </>
+
+  var caption = (text, errorText, isError) => <>
+      <Caption1 color={isError ? ["negative400"] : undefined} style={{textAlign: "left"}}>
+        {isError ? errorText : text}
+      </Caption1>
+    </>
+
+  const [username, setUsername] = React.useState(name)
+  const [email, setEmail] = React.useState("")
+  const [waiting, setWaiting] = React.useState("")
+  const [notification, setNotification] = React.useState("")
+  var emailRegex = (/^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/)
+  var emailValid = emailRegex.test(email)
+
+  var reset = () => {setUsername(name); setEmail(""); setIsEditing(false); setNotification("")}
+  var submit = async () => {
+    var web3 = props.web3Data.web3
+    var address = props.web3Data.userAddress
+    var validUntil = Math.floor(Date.now()/1000) + 60
+    var message = `I'm updating my preferences on Polytope to\nusername: ${username}\nemail:  ${email}\nThis request is valid until ${validUntil}`
+    setNotification("")
+    try {
+      setWaiting("Waiting for signature")
+      const signature = await web3.eth.personal.sign(message, address);
+    } catch(e) {
+      console.log(e)
+      setNotification("Signature was not given")
+      setWaiting("")
+      return
+    }
+    try {
+      setWaiting("Uploading to server")
+      // upload
+      // get response, might be error if sig invalid
+      // datastore.flushCache(userId)
+      setIsEditing(false)
+      setWaiting("")
+    } catch (e) {
+      console.log(e)
+      setNotification("Upload to server failed")
+      setWaiting("")
+      return
+    }
+  }
+  var notificationHtml = notification ? <Notification kind={NotificationKind.warning} overrides={{Body: {style: {width: 'auto'}}}}>{() => notification}</Notification> : null
+  var editHtml = <>
+    <div>
+      {notificationHtml}
+      {caption("Edit your username (required)", "Can't be empty", !username)}
+      <Input size={SIZE.compact} placeholder={"username"} value={username} onChange={e => setUsername(e.target.value)} error={!username}/>
+      {caption("Edit your email (won't be shown)", "Invalid email", email && !emailValid)}
+      <Input size={SIZE.compact} placeholder={"e.g. email@my.com"} value={email} onChange={e => setEmail(e.target.value)} error={email && !emailValid}/>
+    </div>
+    <div style={{display: "grid", gridTemplateColumns: "auto auto", columnGap: "15px"}}>
+      <Button kind={KIND.secondary} size={SIZE.compact} onClick={reset}>Cancel</Button>
+      <Button kind={KIND.primary} size={SIZE.compact} onClick={submit}>Submit</Button>
+    </div>
+  </>
+  var waitingHtml = <>
+    <div>
+      <Spinner />
+    </div>
+    <LabelSmall>{waiting}</LabelSmall>
+  </>
 
   return <div style={{display: "grid", gridTemplateColumns: "auto 1fr", height: "100%"}}>
     <div style={{width: "200px", marginLeft: THEME.sizing.scale1400, marginTop: THEME.sizing.scale1400}}>
-      <div style={{display: "grid", gridTemplateColumns: "auto", textAlign:"center"}}>
+      <div style={{display: "grid", gridTemplateColumns: "auto", textAlign:"center", rowGap: "15px"}}>
         <canvas ref={canvasRef} style={{height: profilePicSize+"px", width: profilePicSize+"px", borderRadius: (profilePicSize/2)+"px", boxShadow: "0px 0px 5px #ccc", backgroundColor: "#eee"}}/>
-        <HeadingSmall style={{margin: "15px 0px"}}>
-          {name}
-        </HeadingSmall>
+        {isEditing ? (waiting ? waitingHtml : editHtml) : displayHtml}
         <LabelSmall style={{overflow: "auto"}} color={["contentSecondary"]}>
           {address}
         </LabelSmall>
@@ -1296,7 +1378,7 @@ class VoxelEditor extends React.Component {
             </div>
           </div>
           <div style={{}}>
-            <div style={{boxSizing: "border-box", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", padding: THEME.sizing.scale600, marginLeft: THEME.sizing.scale1400, overflowY: "scroll"}}>
+            <div style={{boxSizing: "border-box", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", padding: THEME.sizing.scale600, marginLeft: THEME.sizing.scale1400, marginBottom: THEME.sizing.scale1400, overflowY: "scroll"}}>
               {sidebar}
             </div>
           </div>
@@ -1640,9 +1722,9 @@ class PublishItemPanel extends React.Component {
     var priceBN = this.ethStringToWei(this.state.price)
     var priceValid = !priceBN.isNaN() && priceBN.gte(0)
 
-    var nameValid = this.state.name && (/^[a-zA-Z0-9 ]+$/).test(this.state.name)
+    var nameValid = true //this.state.name && (/^[a-zA-Z0-9 ]+$/).test(this.state.name) // still want emoji
 
-    var descriptionValid = this.state.name && (/^[a-zA-Z0-9 ]+$/).test(this.state.description)
+    var descriptionValid = true //this.state.name && (/^[a-zA-Z0-9 ]+$/).test(this.state.description)
 
     var allInputValidated = priceValid && nameValid && descriptionValid
         // <ArrowLeft size={28} />

@@ -23,7 +23,8 @@
     "styletron-react": "^5.2.7",
     "three": "^0.114.0",
     "username-generator": "^1.1.0",
-    "web3": "^1.2.6"
+    "web3-eth": "^1.2.6",
+    "web3-utils": "^1.2.6"
   },
   "devDependencies": {
     "@babel/core": "^7.9.0",
