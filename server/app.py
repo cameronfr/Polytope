@@ -66,11 +66,11 @@ def changeUserSettings():
     key = datastoreClient.key("User", address.lower())
     user = datastore.Entity(key=key)
     user["email"] = email
-    user["name"] = name
+    user["username"] = username
     datastoreClient.put(user)
 
-    ipAddress = flask_limiter.util.get_remote_address()
-    logging.info(f"Updated user {address} to name {name} and email {email}. Request from ip {ipAddress}.")
+    ipAddress = get_remote_address()
+    logging.info(f"Updated user {address} to name {username} and email {email}. Request from ip {ipAddress}.")
     return make_reponse("success", 200)
 
 # gunicorn does not run this
