@@ -91,23 +91,30 @@ if (process.env.NODE_ENV == "development") {
 
 class Datastore {
 
-  listingCache = {}
-  userCache = {}
-  imageCache = {}
+  cache = {
+    user: {},
+    item: {},
+  }
+  pendingEndpointCalls= {
+    user: {},
+    item: {},
+  }
 
-  pendingEndpointUserCalls = {}
+  subscriptionCounter = 0
 
   apparatusGenerator = new ApparatusGenerator()
 
-  nullUser = {name: null, avatarURL: null}
-  nullItem = {price: null, name: null, description: null, notForSale: null, authorId: null, ownerId: null}
+  nullType = {
+    "user": {name: null, avatarURL: null},
+    "item": {price: null, name: null, description: null, notForSale: null, authorId: null, ownerId: null}
+  }
 
   hashCode(str) {
     return Array.from(String(str))
       .reduce((s, c) => Math.imul(31, s) + c.charCodeAt(0) | 0, 0)
   }
 
-  generateRandomUsername() {
+  generateUsername() {
     var processIt = str => {
       str = Sentencer.make(str)
       if (str && Math.random() < 0.3) {
@@ -125,7 +132,7 @@ class Datastore {
     return parts.map(p => processIt(p)).join("")
   }
 
-  generateRandomBlurredImageData(id, width, height) {
+  generateBlurredImageData(id, width, height) {
     if (id in this.imageCache) {
       return this.imageCache[id]
     }
@@ -142,14 +149,43 @@ class Datastore {
     return pixels
   }
 
-  generateRandomApparatus(targetCanvas, seed) {
+  generateApparatus(targetCanvas, seed) {
     this.apparatusGenerator.generateAndCopy({targetCanvas, seed})
   }
 
-  async getListingDataById(id) {
-    if (id in this.listingCache) {
-      return this.listingCache[id]
+  async getData({id, kind, overrideCache}) {
+    id = id.toLowerCase()
+    if (id in this.cache[kind] && !overrideCache) {
+      return this.cache[kind][id].data
     }
+
+    var data
+    var generatedData
+    if (id in this.pendingEndpointCalls[kind]) {
+      res = await this.pendingEndpointCalls[kind][id]
+    }
+    if (kind == "user") {
+      var call = this.callEndpoint("/getUserData", [id], "POST").then(res => res.json())
+      this.pendingEndpointCalls[kind][id] = call
+      var res = await call
+      data = res[id]
+      generatedData = this.generateUserData({id})
+    } else if (kind == "item") {
+      var res = {id: null}
+      data = res[id]
+      generatedData = this.generateItemData({id})
+    }
+    delete this.pendingEndpointCalls[kind][id]
+    data = {...generatedData, ...data}
+
+
+    this.cache[kind][id] = this.cache[kind][id] || {data: null, subscribers: {}}
+    this.cache[kind][id].data = data
+    Object.values(this.cache[kind][id].subscribers).forEach(callback => callback(data))
+    return data
+  }
+
+  generateItemData({id}) {
 
     const price = Math.round(Math.random()*100)/100
     var name = Sentencer.make("{{ adjective }} {{ noun }}")
@@ -167,47 +203,41 @@ class Datastore {
     var authorId = id+10
 
     const data = {price, name, ownerId, blocks, description, authorId}
-    this.listingCache[id] = data
     return data
   }
 
-
-  async getUserData({id, overrideCache}) {
-    id = id.toLowerCase()
-    if (id in this.userCache && !overrideCache) {
-      return this.userCache[id]
-    }
-
-    if (id in this.pendingEndpointUserCalls) {
-      var res = await this.pendingEndpointUserCalls[id]
-    } else {
-      var ids = [id]
-      var call = this.callEndpoint("/getUserData", ids, "POST").then(res => res.json())
-      this.pendingEndpointUserCalls[id] = call
-      var res = await call
-    }
-    delete this.pendingEndpointUserCalls[id]
-
-    const name = (res[id] && res[id].name) || this.generateRandomUsername(id)
+  generateUserData({id}) {
+    var name = this.generateUsername(id)
     const avatarURL = undefined
-
-    var data = {name, avatarURL}
-    this.userCache[id] = data
-    return data
+    return {name, avatarURL}
   }
 
-  async getUserDataBatch(ids) {
-    var res = await this.callEndpoint("/getUserData", ids, "POST").json()
-    var users = {}
-    ids.map(id => {
-      const name = (res[id] && res[id].name) || this.generateRandomUsername(id)
-      const avatarURL = undefined
-      var data = {name, avatarURL}
-      users[id] = data
-      this.userCache[id] = data
-    })
-    return users
+  addSubscription({id, kind, callback}) {
+    id = id.toLowerCase()
+    this.subscriptionCounter += 1
+    const subscriptionId = this.subscriptionCounter
+    this.cache[kind][id] = this.cache[kind][id] || {data: undefined, subscribers: {}}
+    this.cache[kind][id].subscribers[subscriptionId] = callback
+    return subscriptionId
   }
+
+  removeSubscription({id, kind, subscriptionId}) {
+    id = id.toLowerCase()
+    delete this.cache[kind][id].subscribers[subscriptionId]
+  }
+
+  // async getUserDataBatch(ids) {
+  //   var res = await this.callEndpoint("/getUserData", ids, "POST").json()
+  //   var users = {}
+  //   ids.map(id => {
+  //     const name = (res[id] && res[id].name) || this.generateRandomUsername(id)
+  //     const avatarURL = undefined
+  //     var data = {name, avatarURL}
+  //     users[id] = data
+  //     this.cache.user[id] = data
+  //   })
+  //   return users
+  // }
 
   async callEndpoint(endpointFunction, dataDict, method) {
     var res = await fetch(APIEndpoint+endpointFunction, {
@@ -327,7 +357,7 @@ var UserProfile = props => {
   var canvasRef = React.useRef()
   const id = props.id
   var [name, setName] = React.useState()
-  var resetName = async () => setName((await datastore.getUserData({id})).name)
+  var resetName = async () => setName((await datastore.getData({id, kind:"user"})).name)
 
   React.useEffect(() => {
     resetName()
@@ -336,7 +366,7 @@ var UserProfile = props => {
     var {width, height} = canvasRef.current.getBoundingClientRect()
     canvasRef.current.width = width * window.devicePixelRatio
     canvasRef.current.height = height * window.devicePixelRatio
-    datastore.generateRandomApparatus(canvasRef.current, props.id)
+    datastore.generateApparatus(canvasRef.current, props.id)
   }, [props.id])
 
   const profilePicSize = 200
@@ -392,7 +422,7 @@ var UserProfile = props => {
       setWaiting("Uploading to server")
       await datastore.setUserData({message, id, signature})
       setWaiting("Setting name")
-      setName((await datastore.getUserData({id, overrideCache: true})).name)
+      setName((await datastore.getData({id, kind: "user", overrideCache: true})).name)
       setIsEditing(false)
       setWaiting("")
     } catch (e) {
@@ -491,7 +521,7 @@ var ListingCard = props => {
     var animationFrameRequestId
 
     var setupBlockdisplay = async () => {
-      var {blocks} = props.listingData || (await datastore.getListingDataById(props.id))
+      var {blocks} = props.listingData || (await datastore.getData({id: props.id, kind:"item"}))
 
       var gameState = new GameState({blocks})
       const lookAtPos = new Vector3(gameState.worldSize.x/2, 10, gameState.worldSize.y/2)
@@ -528,8 +558,8 @@ var ListingCard = props => {
     return cancelBlockDisplay
   }, [props.id])
 
-  var item = usePromise(() => datastore.getListingDataById(props.id), !props.listingData)
-  item = item || props.listingData || datastore.nullItem
+  var item = useGetFromDatastore({id: props.id, kind: "item", dontUse: !props.id}) //can't not run a hook
+  item = item || props.listingData
 
   const {price, name, description, notForSale, authorId, ownerId} = item
 
@@ -569,8 +599,12 @@ var ListingCard = props => {
 }
 
 var AvatarAndName = props => {
-  var {labelColor, labelStyle, id, name} = props
-  var user = usePromise(() => datastore.getUserData({id}), id) || datastore.nullUser
+
+  var [newDataCtr, setNewDataCtr] = React.useState(0)
+  var {labelColor, labelStyle, id} = props
+
+  var user = useGetFromDatastore({id, kind:"user"})
+
   return (
       <div style={{display: "flex", alignItems: "center"}}>
         <div style={{paddingRight: "10px"}}>
@@ -578,7 +612,7 @@ var AvatarAndName = props => {
         </div>
         <RouterLink to={`/user/${id}`}>
           <LabelLarge color={[labelColor]} style={labelStyle || {}}>
-            {user && user.name}
+            {user.name}
           </LabelLarge>
         </RouterLink>
       </div>
@@ -593,10 +627,10 @@ var UserAvatar = props => {
     var {width, height} = canvasRef.current.getBoundingClientRect()
     canvasRef.current.width = width * window.devicePixelRatio
     canvasRef.current.height = height * window.devicePixelRatio
-    datastore.generateRandomApparatus(canvasRef.current, props.id)
+    datastore.generateApparatus(canvasRef.current, props.id)
   }, [props.id])
 
-  const { avatarURL } = usePromise(() => datastore.getUserData({id: props.id}), props.id) || datastore.nullUser
+  const {avatarURL} = useGetFromDatastore({id: props.id, kind: "user"})
 
   var filter = hover ? "brightness(95%)" : ""
 
@@ -625,6 +659,36 @@ var usePromise = (datastoreCall, shouldRun) => {
   return response
 }
 
+var useGetFromDatastore = ({id, kind, dontUse}) => {
+  var [shouldUpdateCounter, setShouldUpdateCounter] = React.useState(0)
+  var [response, setResponse] = React.useState(datastore.nullType[kind])
+
+  var isCancelled = false
+  var shouldRun = id && true && !dontUse
+
+  shouldRun && datastore.getData({id, kind}).then(res => {
+    !isCancelled && setResponse(res)
+  })
+
+  React.useEffect(() => {
+    if (shouldRun) {
+      var cancel = () => {isCancelled = true}
+      return cancel
+    }
+  })
+
+  React.useEffect(() => {
+    if (shouldRun) {
+      var callback = () => setShouldUpdateCounter(shouldUpdateCounter + 1)
+      var subscriptionId = datastore.addSubscription({kind, id, callback})
+      var cancel = () => datastore.removeSubscription({kind, id, subscriptionId})
+      return cancel
+    }
+  })
+
+  return dontUse ? null : (response || datastore.nullType[kind])
+}
+
 var Listing = props => {
   const viewAreaSize = 500
   const canvasRef = React.useRef()
@@ -635,9 +699,8 @@ var Listing = props => {
     var renderID
     var voxelRenderer
     var setupGame = async () => {
-      console.log("setting up renderer")
       voxelRenderer = new VoxelRenderer({pixelRatio:1, canvas:canvasRef.current})
-      var {blocks} = await datastore.getListingDataById(props.id)
+      var {blocks} = await datastore.getData({id: props.id, kind: "item"})
       var gameState = new GameState({blocks})
       var flyControls = new FlyControls({gameState, domElement: canvasRef.current, interactionDisabled: true})
 
@@ -655,7 +718,6 @@ var Listing = props => {
       animationFrameRequestID = window.requestAnimationFrame(tick)
     }
     var cleanupGame = () => {
-      console.log("cleaning up renderer")
       window.cancelAnimationFrame(animationFrameRequestID)
       voxelRenderer.destroy()
     }
@@ -663,9 +725,10 @@ var Listing = props => {
     return cleanupGame
   }, [props.id])
 
-  var item = usePromise(() => datastore.getListingDataById(props.id), props.id) || datastore.nullItem
-  var owner = usePromise(() => datastore.getUserData({id: item.ownerId}), item.ownerId) || datastore.nullUser
-  var author = usePromise(() => datastore.getUserData({id: item.authorId}), item.authorId) || datastore.nullUser
+  var item = useGetFromDatastore({id: props.id, kind: "item"})
+  var owner = useGetFromDatastore({id: item && item.ownerId, kind: "user"})
+  var author = useGetFromDatastore({id: item && item.authorId, kind: "user"})
+
   const blockMargins = 28
 
   return <>
@@ -710,80 +773,75 @@ class LandingPage extends React.Component {
   }
 }
 
-class Header extends React.Component {
-  constructor(props) {
-    super(props)
+var Header = props => {
+
+  var searchBefore = (
+    <div style={{display: 'flex', alignItems: 'center', paddingLeft: THEME.sizing.scale500}}>
+      <Search size="18px" />
+    </div>)
+  var searchBar = (
+    <Input
+      overrides={{Before: () => searchBefore}}
+      onChange={() => props.search}
+      placeholder={"search"}>
+    </Input>)
+  var onSearchSubmit = e => {
+    e.preventDefault()
   }
 
-  render() {
-    var searchBefore = (
-      <div style={{display: 'flex', alignItems: 'center', paddingLeft: THEME.sizing.scale500}}>
-        <Search size="18px" />
-      </div>)
-    var searchBar = (
-      <Input
-        overrides={{Before: () => searchBefore}}
-        onChange={() => this.props.search}
-        placeholder={"search"}>
-      </Input>)
-    var onSearchSubmit = e => {
-      e.preventDefault()
-    }
+  var profileArea
+  if (props.address) {
+    profileArea = <AvatarAndName id={props.address} labelColor={"colorPrimary"} labelStyle={{maxWidth: "150px", textOverflow: "ellipsis", overflow: "hidden"}}/>
+  } else {
+    profileArea = <>
+      <Button onClick={props.signIn}>Sign In</Button>
+    </>
+  }
 
-    var profileArea
-    if (this.props.address) {
-      profileArea = <AvatarAndName id={this.props.address} labelColor={"colorPrimary"} labelStyle={{maxWidth: "150px", textOverflow: "ellipsis", overflow: "hidden"}}/>
-    } else {
-      profileArea = (
-        <Button onClick={this.props.signIn}>Sign In</Button>
-      )
-    }
+  const farSideMargins = THEME.sizing.scale1400
 
-    const farSideMargins = THEME.sizing.scale1400
-
-    return (
-      <HeaderNavigation style={{backgroundColor: "white"}}>
-        <StyledNavigationList $align={ALIGN.left} style={{marginLeft: farSideMargins}}>
-          <StyledNavigationItem style={{paddingLeft: "0"}}>
-            <RouterLink to={"/"} >
-              <DisplayMedium
-                style={{userSelect: "none", cursor: "pointer", paddingLeft: "0"}}>
-                Polytope
-              </DisplayMedium>
-            </RouterLink>
-          </StyledNavigationItem>
-        </StyledNavigationList>
-        <StyledNavigationList $align={ALIGN.center}>
-          <StyledNavigationItem style={{width: "100%",  minWidth: "200px", maxWidth: "600px"}}>
-            <form onSubmit={() => onSearchSubmit} style={{margin:"0"}}>
-              {searchBar}
-            </form>
-          </StyledNavigationItem>
-        </StyledNavigationList>
-        <StyledNavigationList $align={ALIGN.right}>
-          <StyledNavigationItem style={{paddingLeft: "0px"}}>
-            <RouterLink to={"/home"}>
-              <Button kind={KIND.minimal} size={SIZE.default}>
-                Home
-              </Button>
-            </RouterLink>
-          </StyledNavigationItem>
-          <StyledNavigationItem style={{paddingLeft: "0"}}>
-            <RouterLink to={"/newItem"}>
+  return <>
+    <HeaderNavigation style={{backgroundColor: "white"}}>
+      <StyledNavigationList $align={ALIGN.left} style={{marginLeft: farSideMargins}}>
+        <StyledNavigationItem style={{paddingLeft: "0"}}>
+          <RouterLink to={"/"} >
+            <DisplayMedium
+              style={{userSelect: "none", cursor: "pointer", paddingLeft: "0"}}>
+              Polytope
+            </DisplayMedium>
+          </RouterLink>
+        </StyledNavigationItem>
+      </StyledNavigationList>
+      <StyledNavigationList $align={ALIGN.center}>
+        <StyledNavigationItem style={{width: "100%",  minWidth: "200px", maxWidth: "600px"}}>
+          <form onSubmit={() => onSearchSubmit} style={{margin:"0"}}>
+            {searchBar}
+          </form>
+        </StyledNavigationItem>
+      </StyledNavigationList>
+      <StyledNavigationList $align={ALIGN.right}>
+        <StyledNavigationItem style={{paddingLeft: "0px"}}>
+          <RouterLink to={"/home"}>
             <Button kind={KIND.minimal} size={SIZE.default}>
-              Create Item
+              Home
             </Button>
-            </RouterLink>
-          </StyledNavigationItem>
-        </StyledNavigationList>
-        <StyledNavigationList $align={ALIGN.right} style={{marginRight: farSideMargins}}>
-          <StyledNavigationItem>
-            {profileArea}
-          </StyledNavigationItem>
-        </StyledNavigationList>
-      </HeaderNavigation>
-    )
-  }
+          </RouterLink>
+        </StyledNavigationItem>
+        <StyledNavigationItem style={{paddingLeft: "0"}}>
+          <RouterLink to={"/newItem"}>
+          <Button kind={KIND.minimal} size={SIZE.default}>
+            Create Item
+          </Button>
+          </RouterLink>
+        </StyledNavigationItem>
+      </StyledNavigationList>
+      <StyledNavigationList $align={ALIGN.right} style={{marginRight: farSideMargins}}>
+        <StyledNavigationItem>
+          {profileArea}
+        </StyledNavigationItem>
+      </StyledNavigationList>
+    </HeaderNavigation>
+  </>
 }
 
 var RouterLink = props => {
