@@ -83,14 +83,24 @@ import UsernameGenerator from "username-generator"
 import { decode } from "blurhash"
 import RandomGen from "random-seed"
 
-const APIEndpoint = "https://app.polytope.space"
+var APIEndpoint = "https://app.polytope.space"
+if (process.env.NODE_ENV == "development") {
+  APIEndpoint = "http://localhost:5000"
+}
+
 
 class Datastore {
 
   listingCache = {}
   userCache = {}
   imageCache = {}
+
+  pendingEndpointUserCalls = {}
+
   apparatusGenerator = new ApparatusGenerator()
+
+  nullUser = {name: null, avatarURL: null}
+  nullItem = {price: null, name: null, description: null, notForSale: null, authorId: null, ownerId: null}
 
   hashCode(str) {
     return Array.from(String(str))
@@ -136,7 +146,7 @@ class Datastore {
     this.apparatusGenerator.generateAndCopy({targetCanvas, seed})
   }
 
-  getListingDataById(id) {
+  async getListingDataById(id) {
     if (id in this.listingCache) {
       return this.listingCache[id]
     }
@@ -162,17 +172,41 @@ class Datastore {
   }
 
 
-  getUserDataById(id) {
-    if (id in this.userCache) {
+  async getUserData({id, overrideCache}) {
+    id = id.toLowerCase()
+    if (id in this.userCache && !overrideCache) {
       return this.userCache[id]
     }
 
-    const name = this.generateRandomUsername(id)
-    const avatarURL = "none"
+    if (id in this.pendingEndpointUserCalls) {
+      var res = await this.pendingEndpointUserCalls[id]
+    } else {
+      var ids = [id]
+      var call = this.callEndpoint("/getUserData", ids, "POST").then(res => res.json())
+      this.pendingEndpointUserCalls[id] = call
+      var res = await call
+    }
+    delete this.pendingEndpointUserCalls[id]
+
+    const name = (res[id] && res[id].name) || this.generateRandomUsername(id)
+    const avatarURL = undefined
 
     var data = {name, avatarURL}
     this.userCache[id] = data
     return data
+  }
+
+  async getUserDataBatch(ids) {
+    var res = await this.callEndpoint("/getUserData", ids, "POST").json()
+    var users = {}
+    ids.map(id => {
+      const name = (res[id] && res[id].name) || this.generateRandomUsername(id)
+      const avatarURL = undefined
+      var data = {name, avatarURL}
+      users[id] = data
+      this.userCache[id] = data
+    })
+    return users
   }
 
   async callEndpoint(endpointFunction, dataDict, method) {
@@ -187,10 +221,9 @@ class Datastore {
   }
 
   async setUserData(messageData) {
-    const {address, message, signature} = messageData //assertion of sorts
-    var res = await this.callEndpoint("/userSettings", messageData, "POST") //will error if fails
+    const {id, message, signature} = messageData //assertion of sorts
+    var res = await this.callEndpoint("/setUserSettings", messageData, "POST") //will error if fails
   }
-
 }
 
 class App extends React.Component {
@@ -292,9 +325,14 @@ var SidebarAndListings = props => {
 
 var UserProfile = props => {
   var canvasRef = React.useRef()
-  var {name} = datastore.getUserDataById(props.id)
+  const id = props.id
+  var [name, setName] = React.useState()
+  var resetName = async () => setName((await datastore.getUserData({id})).name)
 
   React.useEffect(() => {
+    resetName()
+
+    // setting canvas picture
     var {width, height} = canvasRef.current.getBoundingClientRect()
     canvasRef.current.width = width * window.devicePixelRatio
     canvasRef.current.height = height * window.devicePixelRatio
@@ -302,14 +340,12 @@ var UserProfile = props => {
   }, [props.id])
 
   const profilePicSize = 200
-  var address = props.id
-
 
   const [isEditing, setIsEditing] = React.useState(false)
   var editButton = null
-  // if (props.web3Data.userAddress == props.id) {
+  if (props.web3Data.userAddress == id) {
     editButton = <Caption2 onClick={() => setIsEditing(true)}style={{marginLeft: "4px", textDecoration:"underline", lineHeight: "24px", cursor:"pointer"}}>edit</Caption2>
-  // }
+  }
 
   var displayHtml = <>
     <div style={{display: "grid", gridTemplateColumns: "repeat(2, minmax(auto, min-content))", justifyContent: "center", alignItems: "end"}} >
@@ -326,24 +362,26 @@ var UserProfile = props => {
       </Caption1>
     </>
 
-  const [username, setUsername] = React.useState(name)
   const [email, setEmail] = React.useState("")
   const [waiting, setWaiting] = React.useState("")
   const [notification, setNotification] = React.useState("")
   var emailRegex = (/^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/)
   var emailValid = emailRegex.test(email)
 
-  var reset = () => {setUsername(name); setEmail(""); setIsEditing(false); setNotification("")}
+  var reset = async () => {
+    resetName()
+    setIsEditing(false)
+    setNotification("")
+  }
   var submit = async () => {
     var web3 = props.web3Data.web3
-    var address = props.web3Data.userAddress
-    var validUntil = Math.floor(Date.now()/1000) + 60
+    var validUntil = Math.floor(Date.now()/1000) + 120
     var signature
-    var message = `I'm updating my preferences on Polytope with the username ${username} and the email ${email}. This request is valid until ${validUntil}`
+    var message = `I'm updating my preferences on Polytope with the username ${name} and the email ${email}. This request is valid until ${validUntil}`
     setNotification("")
     try {
       setWaiting("Waiting for signature")
-      signature = await web3.eth.personal.sign(Web3Utils.fromUtf8(message), address);
+      signature = await web3.eth.personal.sign(Web3Utils.fromUtf8(message), id);
     } catch(e) {
       console.log(e)
       setNotification("Signature was not given")
@@ -352,10 +390,9 @@ var UserProfile = props => {
     }
     try {
       setWaiting("Uploading to server")
-      await datastore.setUserData({message, address, signature})
-      // upload. server checks sig, validates username, sets datastore, returns error or not
-      // get response, might be error if sig invalid
-      // datastore.flushCache(userId)
+      await datastore.setUserData({message, id, signature})
+      setWaiting("Setting name")
+      setName((await datastore.getUserData({id, overrideCache: true})).name)
       setIsEditing(false)
       setWaiting("")
     } catch (e) {
@@ -369,8 +406,8 @@ var UserProfile = props => {
   var editHtml = <>
     <div>
       {notificationHtml}
-      {caption("Edit your username (required)", "Can't be empty", !username)}
-      <Input size={SIZE.compact} placeholder={"username"} value={username} onChange={e => setUsername(e.target.value)} error={!username}/>
+      {caption("Edit your username (required)", "Can't be empty", !name)}
+      <Input size={SIZE.compact} placeholder={"username"} value={name} onChange={e => setName(e.target.value)} error={!name}/>
       {caption("Edit your email (won't be shown)", "Invalid email", email && !emailValid)}
       <Input size={SIZE.compact} placeholder={"e.g. email@my.com"} value={email} onChange={e => setEmail(e.target.value)} error={email && !emailValid}/>
     </div>
@@ -392,7 +429,7 @@ var UserProfile = props => {
         <canvas ref={canvasRef} style={{height: profilePicSize+"px", width: profilePicSize+"px", borderRadius: (profilePicSize/2)+"px", boxShadow: "0px 0px 5px #ccc", backgroundColor: "#eee"}}/>
         {isEditing ? (waiting ? waitingHtml : editHtml) : displayHtml}
         <LabelSmall style={{overflow: "auto"}} color={["contentSecondary"]}>
-          {address}
+          {id}
         </LabelSmall>
       </div>
     </div>
@@ -426,7 +463,7 @@ class Listings extends React.Component {
   }
 
   render() {
-    var cards = [...Array(45).keys()].map(idx => {
+    var cards = [...Array(10).keys()].map(idx => {
       var itemId = Web3Utils.sha3(idx.toString())
       var card = <ListingCard key={idx} id={itemId} voxelRenderer={this.voxelRenderer} imageSize={220} />
       return card
@@ -440,265 +477,227 @@ class Listings extends React.Component {
   }
 }
 
-class ListingCard extends React.Component {
+var ListingCard = props => {
+  const canvasRef = React.useRef()
+  const imageSize =
 
-  // imageSize = 200
-  // imageSize = 250
-
-  constructor(props) {
-    super(props)
-    this.canvasRef = React.createRef()
-  }
-
-  componentDidMount() {
-    this.updateBlockDisplay()
-  }
-
-  componentDidUpdate(prevProps) {
-    if (prevProps.blocks != this.props.blocks) {
-      this.cleanupBlockDisplay()
-      this.updateBlockDisplay()
-    }
-  }
-
-  updateBlockDisplay() {
-
-    this.blockDisplayListeners = []
+  React.useEffect(() => {
+    var blockDisplayListeners = []
     var addEventListener = (obj, eventName, func) => {
-      this.blockDisplayListeners.push([obj, eventName, func])
+      blockDisplayListeners.push([obj, eventName, func])
       obj.addEventListener(eventName, func)
     }
+    var renderId
+    var animationFrameRequestId
 
-    var {blocks} = this.props.listingData || datastore.getListingDataById(this.props.id)
+    var setupBlockdisplay = async () => {
+      var {blocks} = props.listingData || (await datastore.getListingDataById(props.id))
 
-    var gameState = new GameState({blocks})
+      var gameState = new GameState({blocks})
+      const lookAtPos = new Vector3(gameState.worldSize.x/2, 10, gameState.worldSize.y/2)
+      var orbiter = new AutomaticOrbiter(gameState.camera, {center: lookAtPos.clone(), height: 8, period: 10, radius: 1.2*gameState.worldSize.x/2, lookAtPos})
+      orbiter.setRotationToTime(0)
+      renderId = props.voxelRenderer.addTarget({gameState: gameState, element: canvasRef.current})
 
-    const lookAtPos = new Vector3(gameState.worldSize.x/2, 10, gameState.worldSize.y/2)
-    var orbiter = new AutomaticOrbiter(gameState.camera, {center: lookAtPos.clone(), height: 8, period: 10, radius: 1.2*gameState.worldSize.x/2, lookAtPos})
-    orbiter.setRotationToTime(0)
-    this.renderID = this.props.voxelRenderer.addTarget({gameState: gameState, element: this.canvasRef.current})
-
-    // Orbiting
-    var timeElapsed = 0
-    var enableRotation = () => {
-      var lastTimestamp = window.performance.now()
-      var tick = timestamp => {
-        this.props.voxelRenderer.renderQueue.unshift(this.renderID)
-        timeElapsed += (timestamp - lastTimestamp) / 1000
-        lastTimestamp = timestamp
-        orbiter.setRotationToTime(timeElapsed)
-        this.animationFrameRequestID = window.requestAnimationFrame(tick)
+      // Orbiting
+      var timeElapsed = 0
+      var enableRotation = () => {
+        var lastTimestamp = window.performance.now()
+        var tick = timestamp => {
+          props.voxelRenderer.renderQueue.unshift(renderId)
+          timeElapsed += (timestamp - lastTimestamp) / 1000
+          lastTimestamp = timestamp
+          orbiter.setRotationToTime(timeElapsed)
+          animationFrameRequestId = window.requestAnimationFrame(tick)
+        }
+        animationFrameRequestId = window.requestAnimationFrame(tick)
       }
-      this.animationFrameRequestID = window.requestAnimationFrame(tick)
+      if (props.autoOrbit) {
+        enableRotation()
+      } else {
+        addEventListener(canvasRef.current, "mouseover", e => enableRotation())
+        addEventListener(canvasRef.current, "mouseleave", e => window.cancelAnimationFrame(animationFrameRequestId))
+      }
     }
-    if (this.props.autoOrbit) {
-      enableRotation()
-    } else {
-      addEventListener(this.canvasRef.current, "mouseover", e => enableRotation())
-      addEventListener(this.canvasRef.current, "mouseleave", e => window.cancelAnimationFrame(this.animationFrameRequestID))
+    var cancelBlockDisplay = () => {
+      blockDisplayListeners.map(([obj, eventName, func]) => obj.removeEventListener(eventName, func))
+      window.cancelAnimationFrame(animationFrameRequestId)
+      props.voxelRenderer.removeTarget(renderId)
     }
+    setupBlockdisplay()
+    return cancelBlockDisplay
+  }, [props.id])
+
+  var item = usePromise(() => datastore.getListingDataById(props.id), !props.listingData)
+  item = item || props.listingData || datastore.nullItem
+
+  const {price, name, description, notForSale, authorId, ownerId} = item
+
+  var cardInterior = <>
+    <canvas ref={canvasRef} style={{height: props.imageSize+"px"}} width={props.imageSize} height={props.imageSize}></canvas>
+    <div style={{width: props.imageSize+"px", height: "1px", backgroundColor: "#efefef"}}></div>
+    <div style={{display: "flex", flexDirection: "column", justifyContent: "center", padding: "10px", width: props.imageSize+"px", boxSizing: "border-box", backgroundColor: THEME.colors.primaryB}}>
+      <LabelLarge style={{textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden"}}>
+        {name}
+      </LabelLarge>
+      <ParagraphSmall color={["colorSecondary"]} style={{whiteSpace: "nowrap", overflow:"hidden", textOverflow: "ellipsis", margin: "5px 0px 0px 0px"}}>
+        {description || " "}
+      </ParagraphSmall>
+      <LabelSmall style={{margin: 0, textAlign: "right", marginTop: "5px"}} color={["contentSecondary"]}>
+        {notForSale ? "Not For Sale" : price + " ETH"}
+      </LabelSmall>
+    </div>
+  </>
+
+  var inner
+  if (!props.listingData) {
+    inner = <RouterLink to={`/item/${props.id}`}>
+      {cardInterior}
+    </RouterLink>
+  } else {
+    inner = cardInterior
   }
 
-  cleanupBlockDisplay() {
-    this.blockDisplayListeners.map(([obj, eventName, func]) => obj.removeEventListener(eventName, func))
-    window.cancelAnimationFrame(this.animationFrameRequestID)
-    this.props.voxelRenderer.removeTarget(this.renderID)
-  }
-
-  componentWillUnmount() {
-    this.cleanupBlockDisplay()
-  }
-
-  render() {
-    const { price, name, description, notForSale, authorId, ownerId } = this.props.listingData || datastore.getListingDataById(this.props.id)
-
-    var cardInterior = <>
-      <canvas ref={this.canvasRef} style={{height: this.props.imageSize+"px"}} width={this.props.imageSize} height={this.props.imageSize}></canvas>
-      <div style={{width: this.props.imageSize+"px", height: "1px", backgroundColor: "#efefef"}}></div>
-      <div style={{display: "flex", flexDirection: "column", justifyContent: "center", padding: "10px", width: this.props.imageSize+"px", boxSizing: "border-box", backgroundColor: THEME.colors.primaryB}}>
-        <LabelLarge style={{textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden"}}>
-          {name}
-        </LabelLarge>
-        <ParagraphSmall color={["colorSecondary"]} style={{whiteSpace: "nowrap", overflow:"hidden", textOverflow: "ellipsis", margin: "5px 0px 0px 0px"}}>
-          {description || " "}
-        </ParagraphSmall>
-        <LabelSmall style={{margin: 0, textAlign: "right", marginTop: "5px"}} color={["contentSecondary"]}>
-          {notForSale ? "Not For Sale" : price + " ETH"}
-        </LabelSmall>
+  return <>
+    <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", backfaceVisibility: "hidden", position: "relative", zIndex: "1", width: "min-content",/* width: imageSize+"px",*/ position: "relative", backgroundColor: "eee"}}>
+      <div style={{position: "absolute", right: "10px", top: "10px"}}>
+        <UserAvatar id={ownerId} size={35} />
       </div>
-    </>
-
-    var inner
-    if (!this.props.listingData) {
-      inner = <RouterLink to={`/item/${this.props.id}`}>
-        {cardInterior}
-      </RouterLink>
-    } else {
-      inner = cardInterior
-    }
-
-
-    return <>
-      <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", backfaceVisibility: "hidden", position: "relative", zIndex: "1", width: "min-content", width: this.imageSize+"px", position: "relative", backgroundColor: "eee"}}>
-        <div style={{position: "absolute", right: "10px", top: "10px"}}>
-          <UserAvatar id={ownerId} size={35} />
-        </div>
-        {inner}
-      </div>
-    </>
-
-  }
+      {inner}
+    </div>
+  </>
 }
 
 var AvatarAndName = props => {
-  var {labelColor, labelStyle, ownerId, name} = props
+  var {labelColor, labelStyle, id, name} = props
+  var user = usePromise(() => datastore.getUserData({id}), id) || datastore.nullUser
   return (
       <div style={{display: "flex", alignItems: "center"}}>
         <div style={{paddingRight: "10px"}}>
-          <UserAvatar size={35} id={ownerId}/>
+          <UserAvatar size={35} id={id}/>
         </div>
-        <RouterLink to={`/user/${ownerId}`}>
+        <RouterLink to={`/user/${id}`}>
           <LabelLarge color={[labelColor]} style={labelStyle || {}}>
-            {name}
+            {user && user.name}
           </LabelLarge>
         </RouterLink>
       </div>
   )
 }
 
-class UserAvatar extends React.Component {
-  constructor(props) {
-    super(props)
-    this.canvasRef = React.createRef()
-    this.state = {
-      hover: false
-    }
-  }
+var UserAvatar = props => {
+  const canvasRef = React.useRef()
+  var [hover, setHover] = React.useState(false)
 
-  componentDidMount() {
-    var {width, height} = this.canvasRef.current.getBoundingClientRect()
-    this.canvasRef.current.width = width * window.devicePixelRatio
-    this.canvasRef.current.height = height * window.devicePixelRatio
-    datastore.generateRandomApparatus(this.canvasRef.current, this.props.id)
-    // random blurred image data
-    // const sizeX = this.props.size // * window.devicePixelRatio
-    // const sizeY = this.props.size //* window.devicePixelRatio
-    // const pixels = datastore.generateRandomBlurredImageData(this.props.id, sizeX, sizeY)
-    // const canvas = this.canvasRef.current
-    // canvas.width = sizeX
-    // canvas.height = sizeY
-    // const ctx = canvas.getContext("2d");
-    // const imageData = ctx.createImageData(sizeX, sizeY);
-    // imageData.data.set(pixels);
-    // ctx.putImageData(imageData, 0, 0);
-  }
+  React.useEffect(() => {
+    var {width, height} = canvasRef.current.getBoundingClientRect()
+    canvasRef.current.width = width * window.devicePixelRatio
+    canvasRef.current.height = height * window.devicePixelRatio
+    datastore.generateRandomApparatus(canvasRef.current, props.id)
+  }, [props.id])
 
-  render() {
-    var onClick = (e => {
-      // e.stopPropagation(); navigate(`/user/${this.props.id}`)
-    })
+  const { avatarURL } = usePromise(() => datastore.getUserData({id: props.id}), props.id) || datastore.nullUser
 
-    const { avatarURL } = datastore.getUserDataById(this.props.id)
+  var filter = hover ? "brightness(95%)" : ""
 
-    var filter = this.state.hover ? "brightness(95%)" : ""
-
-    return (
-      <RouterLink to={`/user/${this.props.id}`}>
-        <div onClick={onClick} style={{height: this.props.size+"px", width: this.props.size+"px", borderRadius: this.props.size/2.0+"px", backgroundColor: "#eee", cursor: "pointer", overflow: "hidden", boxShadow: "0px 0px 3px #ccc", filter}} onMouseOver={() => this.setState({hover: true})} onMouseLeave={() => this.setState({hover: false})}>
-          <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
-        </div>
-      </RouterLink>
-    )
-  }
+  return <>
+    <RouterLink to={`/user/${props.id}`}>
+      <div style={{height: props.size+"px", width: props.size+"px", borderRadius: props.size/2.0+"px", backgroundColor: "#eee", cursor: "pointer", overflow: "hidden", boxShadow: "0px 0px 3px #ccc", filter}} onMouseOver={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+        <canvas ref={canvasRef} style={{height: "100%", width: "100%"}}/>
+      </div>
+    </RouterLink>
+  </>
 }
 
-class Listing extends React.Component {
+var usePromise = (datastoreCall, shouldRun) => {
+  const [response, setResponse] = React.useState()
+  var isCancelled = false
 
-  viewAreaSize = 500
+  React.useEffect(() => {
+    var cancel = () => {isCancelled = true}
+    return cancel
+  }, [shouldRun])
 
-  constructor(props) {
-    super(props)
-    this.canvasRef = React.createRef()
-  }
+  shouldRun && datastoreCall().then(res => {
+    !isCancelled && setResponse(res)
+  })
 
-  componentDidMount() {
-    this.voxelRenderer = new VoxelRenderer({pixelRatio:1, canvas:this.canvasRef.current})
-    this.updateBlockDisplay()
-  }
+  return response
+}
 
-  // will update blocks even if blocks/props.id doesn't change
-  componentDidUpdate() {
-    this.cleanupBlockDisplay()
-    this.updateBlockDisplay()
-  }
+var Listing = props => {
+  const viewAreaSize = 500
+  const canvasRef = React.useRef()
 
-  updateBlockDisplay() {
-    const {blocks} = datastore.getListingDataById(this.props.id)
-    var gameState = new GameState({blocks})
-    var flyControls = new FlyControls({gameState, domElement: this.canvasRef.current,interactionDisabled: true})
+  // Game setup and destroy
+  React.useEffect(() => {
+    var animationFrameRequestID
+    var renderID
+    var voxelRenderer
+    var setupGame = async () => {
+      console.log("setting up renderer")
+      voxelRenderer = new VoxelRenderer({pixelRatio:1, canvas:canvasRef.current})
+      var {blocks} = await datastore.getListingDataById(props.id)
+      var gameState = new GameState({blocks})
+      var flyControls = new FlyControls({gameState, domElement: canvasRef.current, interactionDisabled: true})
 
-    // set initial position
-    const lookAtPos = new Vector3(gameState.worldSize.x/2, 10, gameState.worldSize.y/2)
-    var orbiter = new AutomaticOrbiter(gameState.camera, {center: lookAtPos.clone(), height: 8, period: 10, radius: 1.2*gameState.worldSize.x/2, lookAtPos})
-    orbiter.setRotationToTime(0)
+      // set initial position
+      const lookAtPos = new Vector3(gameState.worldSize.x/2, 10, gameState.worldSize.y/2)
+      var orbiter = new AutomaticOrbiter(gameState.camera, {center: lookAtPos.clone(), height: 8, period: 10, radius: 1.2*gameState.worldSize.x/2, lookAtPos})
+      orbiter.setRotationToTime(0)
 
-    this.renderID = this.voxelRenderer.addTarget({gameState: gameState, element: this.canvasRef.current})
-
-    var tick = timestamp => {
-      this.voxelRenderer.renderQueue.unshift(this.renderID)
-      flyControls.externalTick(1/60)
-      this.animationFrameRequestID = window.requestAnimationFrame(tick)
+      renderID = voxelRenderer.addTarget({gameState: gameState, element: canvasRef.current})
+      var tick = timestamp => {
+        voxelRenderer.renderQueue.unshift(renderID)
+        flyControls.externalTick(1/60)
+        animationFrameRequestID = window.requestAnimationFrame(tick)
+      }
+      animationFrameRequestID = window.requestAnimationFrame(tick)
     }
-    this.animationFrameRequestID = window.requestAnimationFrame(tick)
-  }
+    var cleanupGame = () => {
+      console.log("cleaning up renderer")
+      window.cancelAnimationFrame(animationFrameRequestID)
+      voxelRenderer.destroy()
+    }
+    setupGame()
+    return cleanupGame
+  }, [props.id])
 
-  cleanupBlockDisplay() {
-    window.cancelAnimationFrame(this.animationFrameRequestID)
-    this.voxelRenderer.removeTarget(this.renderID)
-  }
+  var item = usePromise(() => datastore.getListingDataById(props.id), props.id) || datastore.nullItem
+  var owner = usePromise(() => datastore.getUserData({id: item.ownerId}), item.ownerId) || datastore.nullUser
+  var author = usePromise(() => datastore.getUserData({id: item.authorId}), item.authorId) || datastore.nullUser
+  const blockMargins = 28
 
-  componentWillUnmount() {
-    this.cleanupBlockDisplay()
-    this.voxelRenderer.destroy()
-  }
-
-  render() {
-    const { price, name, ownerId, authorId, description } = datastore.getListingDataById(this.props.id)
-    const owner = datastore.getUserDataById(ownerId)
-    const author = datastore.getUserDataById(authorId)
-    const blockMargins = 28
-
-    return (
-        <div style={{display: "flex", justifyContent: "center", alignItems: "center", padding: "28px"}}>
-          <div style={{display: "flex", flexWrap: "wrap"}}>
-            <div style={{width: this.viewAreaSize+"px", height: this.viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", margin: blockMargins+"px", position: "relative", zIndex: "1"}}>
-              <div style={{position: "absolute", top:"10px", right: "10px"}}>
-                <ControlsHelpTooltip hideEditControls/>
-              </div>
-              <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
-            </div>
-            <div style={{/*width: this.viewAreaSize+"px",*/flexBasis: "min-content", flexGrow: "1", maxWidth: this.viewAreaSize + "px", display: "flex", flexDirection: "column", margin: blockMargins+"px"}}>
-              <DisplaySmall color={["colorSecondary"]}>
-                {name}
-              </DisplaySmall>
-              <div style={{display: "grid", gridTemplateColumns: "repeat(2, min-content)", alignItems: "center", marginTop: "25px", paddingLeft: "2px", rowGap: "20px"}}>
-                <LabelLarge color={["colorSecondary"]} style={{marginRight: "10px", whiteSpace: "nowrap"}}>
-                  {"Owner is"}
-                </LabelLarge>
-                <AvatarAndName ownerId={ownerId} name={owner.name} labelColor={"colorSecondary"} />
-                <LabelLarge color={["colorSecondary"]} style={{marginRight: "10px", whiteSpace: "nowrap", textAlign: "left"}}>
-                  {"Maker is"}
-                </LabelLarge>
-                <AvatarAndName ownerId={authorId} name={author.name} labelColor={"colorSecondary"} />
-              </div>
-              <ParagraphMedium style={{marginTop: "25px", paddingLeft: "2px", lineHeight: "2em"}}>
-                {description}
-              </ParagraphMedium>
-            </div>
+  return <>
+    <div style={{display: "flex", justifyContent: "center", alignItems: "center", padding: "28px"}}>
+      <div style={{display: "flex", flexWrap: "wrap"}}>
+        <div style={{width: viewAreaSize+"px", height: viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", margin: blockMargins+"px", position: "relative", zIndex: "1"}}>
+          <div style={{position: "absolute", top:"10px", right: "10px"}}>
+            <ControlsHelpTooltip hideEditControls/>
           </div>
+          <canvas ref={canvasRef} style={{height: "100%", width: "100%"}}/>
         </div>
-    )
-  }
+        <div style={{/*width: viewAreaSize+"px",*/flexBasis: "min-content", flexGrow: "1", maxWidth: viewAreaSize + "px", display: "flex", flexDirection: "column", margin: blockMargins+"px"}}>
+          <DisplaySmall color={["colorSecondary"]}>
+            {item.name}
+          </DisplaySmall>
+          <div style={{display: "grid", gridTemplateColumns: "repeat(2, min-content)", alignItems: "center", marginTop: "25px", paddingLeft: "2px", rowGap: "20px"}}>
+            <LabelLarge color={["colorSecondary"]} style={{marginRight: "10px", whiteSpace: "nowrap"}}>
+              {"Owner is"}
+            </LabelLarge>
+            <AvatarAndName id={item.ownerId} labelColor={"colorSecondary"} />
+            <LabelLarge color={["colorSecondary"]} style={{marginRight: "10px", whiteSpace: "nowrap", textAlign: "left"}}>
+              {"Maker is"}
+            </LabelLarge>
+            <AvatarAndName id={item.authorId} labelColor={"colorSecondary"} />
+          </div>
+          <ParagraphMedium style={{marginTop: "25px", paddingLeft: "2px", lineHeight: "2em"}}>
+            {item.description}
+          </ParagraphMedium>
+        </div>
+      </div>
+    </div>
+  </>
 }
 
 class LandingPage extends React.Component {
@@ -733,7 +732,7 @@ class Header extends React.Component {
 
     var profileArea
     if (this.props.address) {
-      profileArea = <AvatarAndName ownerId={this.props.address} name={this.props.address} labelColor={"colorPrimary"} labelStyle={{maxWidth: "150px", textOverflow: "ellipsis", overflow: "hidden"}}/>
+      profileArea = <AvatarAndName id={this.props.address} labelColor={"colorPrimary"} labelStyle={{maxWidth: "150px", textOverflow: "ellipsis", overflow: "hidden"}}/>
     } else {
       profileArea = (
         <Button onClick={this.props.signIn}>Sign In</Button>

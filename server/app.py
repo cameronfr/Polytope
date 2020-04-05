@@ -15,15 +15,17 @@ import time
 
 client = google.cloud.logging.Client()
 client.setup_logging()
+datastoreClient = datastore.Client()
 
 app = Flask(__name__)
+# note: if cloud run instances not maxed, in-memory storage of #hits not effective
 limiter = Limiter(
     app,
     key_func=get_ipaddr,
-    default_limits=["1440 per day", "60 per hour"]
+    default_limits=["60 per minute"]
 )
 
-corsOrigins = ["https://polytope.space", "https://localhost:1234"]
+corsOrigins = ["https://polytope.space", "http://localhost:1234"]
 
 @app.after_request
 def addCORS(response):
@@ -40,37 +42,54 @@ def hello_world():
     target = os.environ.get("TARGET", "World")
     return "Hello {}!\n".format(target)
 
-@app.route("/userSettings", methods=["POST"])
-def changeUserSettings():
+@app.route("/getUserData", methods=["POST"])
+def getUserData():
+    data = request.json
+
+    keys = [datastoreClient.key("User", id.lower()) for id in data]
+    users = datastoreClient.get_multi(keys)
+
+    retKeys = ["name"]
+    retData = {user.key.id_or_name: {key: user[key] for key in retKeys} for user in users}
+
+    return make_response(retData, 200)
+
+
+@app.route("/setUserSettings", methods=["POST"])
+@limiter.limit("60 per hour")
+def setUserSettings():
     data = request.json
     message = data["message"]
     signature = data["signature"]
-    address = data["address"]
+    id = data["id"] #address
 
     # validate that message has been signed by address
     hash = defunct_hash_message(message.encode("utf-8")) # prepends / appends some stuff, then sha3-s
     messageSigner = w3.eth.account.recoverHash(hash, signature=signature)
-    assert (messageSigner.lower() == address.lower())
+    assert (messageSigner.lower() == id.lower())
 
     # parse the message
-    regex = r"""^I'm updating my preferences on Polytope with the username (?P<username>.*) and the email (?P<email>.*). This request is valid until (?P<validUntil>.*)$"""
-    username, email, validUntil = re.search(regex, message).groups()
+    regex = r"""^I'm updating my preferences on Polytope with the username (?P<name>.*) and the email (?P<email>.*). This request is valid until (?P<validUntil>.*)$"""
+    name, email, validUntil = re.search(regex, message).groups()
 
     # validate that the message contents are ok to use
     assert (time.time() < int(validUntil))
-    assert (len(username) < 100)
+    assert (len(name) < 100)
     assert (len(email) < 100)
-    assert (len(username) > 0)
+    assert (len(name) > 0)
 
-    datastoreClient = datastore.Client()
-    key = datastoreClient.key("User", address.lower())
-    user = datastore.Entity(key=key)
-    user["email"] = email
-    user["username"] = username
-    datastoreClient.put(user)
+    with datastoreClient.transaction():
+        key = datastoreClient.key("User", id.lower())
+        user = datastoreClient.get(key)
+        user = user if user is not None else datastore.Entity(key=key)
 
-    ipAddress = get_ipaddr() #x-forwarded-for, from cloud run
-    logging.info(f"Updated user {address} to name {username} and email {email}. Request from ip {ipAddress}.")
+        user["email"] = user["email"] if email is "" else email
+        user["name"] = name
+
+        datastoreClient.put(user)
+
+    ipAddress = get_ipaddr() #x-forwarded-for, from cloud run.
+    logging.info(f"Updated user {id} to name {name} and email {email}. Request from ip {ipAddress}.")
     return make_response("success", 200)
 
 # gunicorn does not run this
