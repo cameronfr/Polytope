@@ -768,14 +768,29 @@ var Listing = props => {
   </>
 }
 
-class LandingPage extends React.Component {
-  constructor(props) {
-    super(props)
-  }
+var LandingPage = props => {
 
-  render() {
-    return "you've landed"
-  }
+  var voxelRenderer = new VoxelRenderer({pixelRatio:window.devicePixelRatio})
+  React.useEffect(() => {
+    return () => voxelRenderer.destroy()
+  })
+
+
+  var cards = [...Array(3).keys()].map(idx => {
+    var itemId = Web3Utils.sha3(idx.toString())
+    var card = <ListingCard key={idx} id={itemId} voxelRenderer={voxelRenderer} imageSize={220} />
+    var container = <div style={{display: "flex", justifyContent: "center"}}>{card}</div>
+    return card
+  })
+
+  const clipPath = "polygon(0 0, 100% 0, 100% 50%, 0% 100%)"
+  return <>
+    <div style={{clipPath, WebkitClipPath: clipPath, backgroundColor: "#eee", height: "660px"}}>
+      <div style={{height: "500px", width: "100%", display: "flex", alignItems: "center", justifyContent: "space-around"}}>
+        {cards}
+      </div>
+    </div>
+  </>
 }
 
 var Header = props => {
