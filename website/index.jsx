@@ -8,6 +8,8 @@ import "regenerator-runtime/runtime";
 // var Web3 = require("web3");
 var Web3Eth = require('web3-eth');
 var Web3Utils = require('web3-utils');
+import { Keccak } from "sha3"
+import { Buffer } from "buffer"
 
 // Voxel Stuff
 import {ApparatusGenerator} from "./procedural.jsx"
@@ -155,7 +157,7 @@ class Datastore {
 
   async getData({id, kind, overrideCache}) {
     id = id.toLowerCase()
-    if (id in this.cache[kind] && !overrideCache) {
+    if ((id in this.cache[kind]) && (this.cache[kind][id].data) && !overrideCache) {
       return this.cache[kind][id].data
     }
 
@@ -177,7 +179,6 @@ class Datastore {
     }
     delete this.pendingEndpointCalls[kind][id]
     data = {...generatedData, ...data}
-
 
     this.cache[kind][id] = this.cache[kind][id] || {data: null, subscribers: {}}
     this.cache[kind][id].data = data
@@ -296,7 +297,7 @@ class App extends React.Component {
     var {userAddress, web3} = this.state
     var web3Data = {userAddress, web3}
     return (
-      <div style={{display: "flex", flexDirection: "column", height: "100%", minWidth: "1000px"}}>
+      <div style={{display: "grid", gridTemplateRows: "auto 1fr", height: "100%", minWidth: "1000px"}}>
         <ToasterContainer autoHideDuration={3000} overrides={{Root: {style: () => ({zIndex: 2})}}}/>
         <div>
           <Header signIn={() => this.signIn()} address={this.state.userAddress} />
@@ -341,7 +342,7 @@ var SidebarAndListings = props => {
     navigate(item.itemId)
   }
   return <div style={{display: "grid", gridTemplateColumns: "auto 1fr", height: "100%"}}>
-    <div style={{width: "200px", marginLeft: THEME.sizing.scale1400, marginTop: THEME.sizing.scale1400}}>
+    <div style={{width: "200px", marginLeft: THEME.sizing.scale1400, marginTop: THEME.sizing.scale1400, boxSizing: "border-box"}}>
       <Navigation items={navigationItems} activeItemId={activeSidebarId} onChange={onChange}/>
     </div>
     <div style={{position: "relative"}}>
@@ -357,7 +358,7 @@ var UserProfile = props => {
   var canvasRef = React.useRef()
   const id = props.id
   var [name, setName] = React.useState()
-  var resetName = async () => setName((await datastore.getData({id, kind:"user"})).name)
+  var resetName = async () => {console.log((await datastore.getData({id, kind:"user"})));setName((await datastore.getData({id, kind:"user"})).name)}
 
   React.useEffect(() => {
     resetName()
@@ -711,8 +712,10 @@ var Listing = props => {
 
       renderID = voxelRenderer.addTarget({gameState: gameState, element: canvasRef.current})
       var tick = timestamp => {
-        voxelRenderer.renderQueue.unshift(renderID)
-        flyControls.externalTick(1/60)
+        if (document.hasFocus()) {
+          voxelRenderer.renderQueue.unshift(renderID)
+          flyControls.externalTick(1/60)
+        }
         animationFrameRequestID = window.requestAnimationFrame(tick)
       }
       animationFrameRequestID = window.requestAnimationFrame(tick)
@@ -734,6 +737,8 @@ var Listing = props => {
   return <>
     <div style={{display: "flex", justifyContent: "center", alignItems: "center", padding: "28px"}}>
       <div style={{display: "flex", flexWrap: "wrap"}}>
+        {/*TODO: make this accessible */}
+        <ArrowLeft size={40} onClick={() => window.history.back()} style={{color: "black", cursor: "pointer", marginTop: blockMargins+"px"}}/>
         <div style={{width: viewAreaSize+"px", height: viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", margin: blockMargins+"px", position: "relative", zIndex: "1"}}>
           <div style={{position: "absolute", top:"10px", right: "10px"}}>
             <ControlsHelpTooltip hideEditControls/>
@@ -1447,7 +1452,7 @@ class VoxelEditor extends React.Component {
     return (
       <div style={{width: "100%", height:"100%"}}>
         <div style={{display: "flex", padding: THEME.sizing.scale1400, boxSizing: "border-box", height: "100%", minHeight: "400px"}}>
-          <div ref={this.containerRef} style={{flexGrow: "1", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "1", minWidth: "200px"}}>
+          <div ref={this.containerRef} style={{flexGrow: "1", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "1", minWidth: "200px", maxWidth: "780px", maxHeight: "610px"}}>
             <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
             <div style={{position: "absolute", right: "10px", top: "10px"}}>
               <ControlsHelpTooltip hideEditControls={this.state.atPublishDialog} />
@@ -1841,8 +1846,15 @@ class PublishItemPanel extends React.Component {
         </div>
       </div>
     </>
-
   }
+}
+
+var MintItemFlow = props => {
+  // combine this with other component
+    var blockHash = keccakUint8Array(props.blocks.data)
+    // sign metadata
+    // upload metadata to server, have it verified
+    // web3 call contract mint function
 }
 
 class ResetButtonWithConfirm extends React.Component {
@@ -2284,7 +2296,14 @@ class AutomaticOrbiter {
     this.camera.lookAt(this.lookAtPos)
     this.camera.updateWorldMatrix()
   }
+}
 
+// note: web3 sha3 is actually keccak256. sha-3 standard is different from keccak256
+function keccakUint8Array(array) {
+  const hash = new Keccak(256)
+  hash.update(Buffer.from(array))
+  hashHex = "0x" + hash.digest("hex")
+  return hashHex
 }
 
 // Code that runs in module
