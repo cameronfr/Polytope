@@ -27,6 +27,7 @@ import {Client as Styletron} from 'styletron-engine-atomic';
 import {useStyletron} from 'baseui';
 import {LightTheme, BaseProvider, styled} from 'baseui';
 import { StyledLink } from "baseui/link";
+import { ListItem } from "baseui/list";
 import { Button, KIND, SIZE } from "baseui/button";
 import { Input as InputBroken } from "baseui/input"
 import { Search } from "baseui/icon";
@@ -34,7 +35,7 @@ import { Notification, KIND as NotificationKind} from "baseui/notification";
 import { toaster, ToasterContainer } from "baseui/toast";
 import { Checkbox, LABEL_PLACEMENT } from "baseui/checkbox";
 import { StatefulTooltip } from "baseui/tooltip";
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from "baseui/icon"
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ChevronRight } from "baseui/icon"
 import { MdMouse } from "react-icons/md"
 import {IoMdHelpCircleOutline, IoMdHelp} from "react-icons/io"
 import { Navigation } from "baseui/side-navigation";
@@ -557,7 +558,7 @@ var ListingCard = props => {
     }
     setupBlockdisplay()
     return cancelBlockDisplay
-  }, [props.id])
+  }, [props.id, props.voxelRenderer])
 
   var item = useGetFromDatastore({id: props.id, kind: "item", dontUse: !props.id}) //can't not run a hook
   item = item || props.listingData
@@ -736,7 +737,7 @@ var Listing = props => {
 
   return <>
     <div style={{display: "flex", justifyContent: "center", alignItems: "center", padding: "28px"}}>
-      <div style={{display: "flex", flexWrap: "wrap"}}>
+      <div style={{display: "flex", flexWrap: "nowrap"}}>
         {/*TODO: make this accessible */}
         <ArrowLeft size={40} onClick={() => window.history.back()} style={{color: "black", cursor: "pointer", marginTop: blockMargins+"px"}}/>
         <div style={{width: viewAreaSize+"px", height: viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", margin: blockMargins+"px", position: "relative", zIndex: "1"}}>
@@ -745,10 +746,13 @@ var Listing = props => {
           </div>
           <canvas ref={canvasRef} style={{height: "100%", width: "100%"}}/>
         </div>
-        <div style={{/*width: viewAreaSize+"px",*/flexBasis: "min-content", flexGrow: "1", maxWidth: viewAreaSize + "px", display: "flex", flexDirection: "column", margin: blockMargins+"px"}}>
-          <DisplaySmall color={["colorSecondary"]}>
+        <div style={{/*width: viewAreaSize+"px",*/flexBasis: "min-content", flexGrow: "1", maxWidth: viewAreaSize + "px", display: "grid", height: "min-content", margin: blockMargins+"px"}}>
+          <DisplaySmall>
             {item.name}
           </DisplaySmall>
+          <LabelLarge style={{overflow: "auto", paddingLeft: "2px", marginTop: "25px", minWidth: "0"}} color={["contentSecondary"]}>
+            {props.id}
+          </LabelLarge>
           <div style={{display: "grid", gridTemplateColumns: "repeat(2, min-content)", alignItems: "center", marginTop: "25px", paddingLeft: "2px", rowGap: "20px"}}>
             <LabelLarge color={["colorSecondary"]} style={{marginRight: "10px", whiteSpace: "nowrap"}}>
               {"Owner is"}
@@ -783,13 +787,115 @@ var LandingPage = props => {
     return card
   })
 
-  const clipPath = "polygon(0 0, 100% 0, 100% 50%, 0% 100%)"
-  return <>
-    <div style={{clipPath, WebkitClipPath: clipPath, backgroundColor: "#eee", height: "660px"}}>
-      <div style={{height: "500px", width: "100%", display: "flex", alignItems: "center", justifyContent: "space-around"}}>
-        {cards}
+  // List
+  const listItemStyle = {lineHeight: "60px", margin: "0"}
+  var numberBox = number => <>
+    <HeadingLarge style={{height: "60px", margin: "0", display: "flex", alignItems:"center" }}>
+      <div style={{display: "grid", justifyContent: "center", alignContent: "center", backgroundColor: "white", boxShadow: "0px 0px 3px #ccc", width: "1.5em", height: "1.5em", borderRadius: "10%"}}>
+          {number}
+      </div>
+    </HeadingLarge>
+  </>
+  var listRow = (num, content) => <>
+    <div style={{display: "flex", alignItems: "start", justifyContent: "start"}}>
+      {numberBox(num)} <div style={{marginLeft: "1em"}}>{content}</div>
+    </div>
+  </>
+  var instructionsList = <>
+    <div style={{display: "grid", rowGap: THEME.sizing.scale800}}>
+      {listRow(1, <HeadingMedium style={listItemStyle} color={["contentSecondary"]}>
+          Create your item in our editor.
+      </HeadingMedium> )}
+      {listRow(2, <HeadingMedium style={listItemStyle} color={["contentSecondary"]}>
+        <div>
+          Mint the <StyledLink href="http://erc721.org/">erc721</StyledLink> token for your item on the ethereum blockchain.
+        </div>
+      </HeadingMedium> )}
+      {listRow(3, <HeadingMedium style={listItemStyle} color={["contentSecondary"]}>
+        <div>
+          Explore and trade for others' items.
+        </div>
+      </HeadingMedium> )}
+    </div>
+  </>
+
+  //footer
+  var [showMoreBuiltWith, setShowMoreBuiltWith] = React.useState(false)
+  var moreButton = <>
+    <div style={{display: "inline", textDecoration: "underline", color: "white", cursor: "pointer"}} onClick={() => setShowMoreBuiltWith(true)}>more</div>
+  </>
+  var expandedMore = <> web3, reach-router, bignumber.js, scijs-ndarray, three, babel, parcel, react-icons, Wolfram's Icosahedron, and Island Joy 16. </>
+  var moreArea = showMoreBuiltWith ? expandedMore : moreButton
+  const logoImage = require('./logo.svg');
+  const licenseLink = (text, link) => <StyledLink style={{color: "white"}} href={link}>{text}</StyledLink>
+  var footer = <>
+    <div style={{height: "1px", width: "100%", backgroundColor: THEME.colors.colorSecondary}}></div>
+    <div style={{display: "grid", gridTemplateColumns: "auto 1fr", columnGap: THEME.sizing.scale1000, padding: THEME.sizing.scale1400, backgroundColor: THEME.colors.colorSecondary, alignItems: "center"}}>
+      <img src={logoImage} height="150px"/>
+      <div>
+        <HeadingXSmall style={{color: "white", margin: "10px"}}>
+          Polytope Inc.
+        </HeadingXSmall>
+        <HeadingXSmall style={{color: "white", margin: "10px"}}>
+          Created by cameronfr.
+        </HeadingXSmall>
+        <HeadingXSmall style={{color: "white", margin: "10px"}}>
+          {"Built with"}{" "}
+          {licenseLink("p5ycho", "https://github.com/kgolid/p5ycho/")},{" "}
+          {licenseLink("regl", "https://github.com/regl-project/regl/")},{" "}
+          {licenseLink("react", "https://github.com/facebook/react/")},{" "}
+          {licenseLink("baseweb", "https://github.com/uber/baseweb/")} and {moreArea}
+        </HeadingXSmall>
       </div>
     </div>
+  </>
+
+  //buttons to go start
+  var buttonMargin = THEME.sizing.scale1000
+  var buttonProps = {kind: KIND.default, size: SIZE.large, style: {marginLeft: buttonMargin, marginRight: buttonMargin, width: "300px"}}
+  var goButton = (text, link) => <>
+      <RouterLink to={link}>
+        <Button {...buttonProps}>
+          <div style={{display: "flex", alignItems: "center", justifyContent: "center"}}>
+            {text}
+            <ChevronRight size={"2em"}/>
+          </div>
+        </Button>
+      </RouterLink>
+  </>
+  var buttonArea = <>
+    <div style={{display: "flex", alignItems: "center", justifyContent: "center", margin: THEME.sizing.scale1000}}>
+      {goButton("Explore Items", "/home")}
+      {goButton("Create An Item", "/newItem")}
+    </div>
+  </>
+
+  const clipPath = "polygon(0 0, 100% 0, 100% 0%, 0% 100%)"
+  const backgroundColor = "#eee"
+
+  return <>
+    <div style={{display: "grid", padding: THEME.sizing.scale1400, backgroundColor: backgroundColor}}>
+      <DisplaySmall>
+        Create, explore, and trade the next generation of digital items.
+      </DisplaySmall>
+    </div>
+    <div style={{backgroundColor: backgroundColor, paddingBottom: THEME.sizing.scale1400, width: "100%", display: "flex", alignItems: "center", justifyContent: "space-around"}}>
+      {cards}
+    </div>
+    <div style={{clipPath, WebkitClipPath: clipPath, height: "100px", backgroundColor: backgroundColor}}>
+    </div>
+    <div style={{display: "grid", padding: THEME.sizing.scale1400, rowGap: THEME.sizing.scale1000}}>
+      <HeadingLarge color={["colorSecondary"]} style={{margin: "0"}}>
+        Every item is a 3D scene of 16<div style={{display: "inline", position: "relative", top: "-0.7em", "fontSize": "60%"}}>3</div> voxels that can be entered and explored.
+      </HeadingLarge>
+      {instructionsList}
+      <HeadingLarge style={{margin: "0"}}>
+        Get Started:
+      </HeadingLarge>
+      {buttonArea}
+      An item's token on the blockchain is irreversibly tied to the item's blocks, such that no two tokens can have the same arrangement of blocks. Specifically, the tokenId on the blockchain is equal to the sha3 hash of an item's blocks.
+    </div>
+    {footer}
   </>
 }
 
@@ -1467,7 +1573,7 @@ class VoxelEditor extends React.Component {
     return (
       <div style={{width: "100%", height:"100%"}}>
         <div style={{display: "flex", padding: THEME.sizing.scale1400, boxSizing: "border-box", height: "100%", minHeight: "400px"}}>
-          <div ref={this.containerRef} style={{flexGrow: "1", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "1", minWidth: "200px", maxWidth: "780px", maxHeight: "610px"}}>
+          <div ref={this.containerRef} style={{flexGrow: "1", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "1", minWidth: "200px"/*, maxWidth: "780px", maxHeight: "610px"*/}}>
             <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
             <div style={{position: "absolute", right: "10px", top: "10px"}}>
               <ControlsHelpTooltip hideEditControls={this.state.atPublishDialog} />

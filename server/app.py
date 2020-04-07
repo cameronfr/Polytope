@@ -22,7 +22,7 @@ app = Flask(__name__)
 limiter = Limiter(
     app,
     key_func=get_ipaddr,
-    default_limits=["60 per minute"]
+    default_limits=["600 per minute"]
 )
 
 corsOrigins = ["https://polytope.space", "http://localhost:1234"]
