@@ -4,6 +4,7 @@ from flask_limiter.util import get_ipaddr
 
 import os
 import logging
+import datetime
 import google.cloud.logging
 
 from google.cloud import datastore
@@ -54,6 +55,23 @@ def getUserData():
 
     return make_response(retData, 200)
 
+@app.route("/setFeedback", methods=["POST"])
+@limiter.limit("60 per hour")
+def setFeedback():
+    data = request.json
+    feedback = data["feedback"]
+    id = data["id"] #address (note: unvalidated) if logged in
+
+    key = datastoreClient.key("Feedback")
+    entity = datastore.Entity(key=key)
+    entity["feedback"] = feedback
+    entity["address"] = id
+    entity["date"] = datetime.datetime.utcnow()
+    entity["ipAddress"] = get_ipaddr()
+    datastoreClient.put(entity)
+
+    logging.info(f"Feedback from {get_ipaddr()}: {feedback}")
+    return make_response("success", 200)
 
 @app.route("/setUserSettings", methods=["POST"])
 @limiter.limit("60 per hour")

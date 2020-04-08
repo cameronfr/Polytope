@@ -28,7 +28,7 @@ import {useStyletron} from 'baseui';
 import {LightTheme, BaseProvider, styled} from 'baseui';
 import { StyledLink } from "baseui/link";
 import { ListItem } from "baseui/list";
-import { Button, KIND, SIZE } from "baseui/button";
+import { Button, KIND, SIZE, SHAPE } from "baseui/button";
 import { Input as InputBroken } from "baseui/input"
 import { Search } from "baseui/icon";
 import { Notification, KIND as NotificationKind} from "baseui/notification";
@@ -256,6 +256,11 @@ class Datastore {
     const {id, message, signature} = messageData //assertion of sorts
     var res = await this.callEndpoint("/setUserSettings", messageData, "POST") //will error if fails
   }
+
+  async setFeedback(feedbackData) {
+    const {id, feedback} = feedbackData
+    var res = await this.callEndpoint("/setFeedback", feedbackData, "POST")
+  }
 }
 
 class App extends React.Component {
@@ -310,7 +315,7 @@ class App extends React.Component {
         <div style={{flex: "auto", position: "relative"}}>
           <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0"}}>
             <Router primary={false}>
-              <LandingPage path="/"/>
+              <LandingPage web3Data={web3Data} path="/"/>
               <Listing path="/item/:id"/>
               <VoxelEditor path="/newItem"/>
             </Router>
@@ -839,6 +844,9 @@ var LandingPage = props => {
         <HeadingXSmall style={{color: "white", margin: "10px"}}>
           Created by cameronfr.
         </HeadingXSmall>
+        <div style={{margin: "10px"}}>
+          <FeedbackButton web3Data={props.web3Data} />
+        </div>
         <HeadingXSmall style={{color: "white", margin: "10px"}}>
           {"Built with"}{" "}
           {licenseLink("p5ycho", "https://github.com/kgolid/p5ycho/")},{" "}
@@ -852,7 +860,7 @@ var LandingPage = props => {
 
   //buttons to go start
   var buttonMargin = THEME.sizing.scale1000
-  var buttonProps = {kind: KIND.default, size: SIZE.large, style: {marginLeft: buttonMargin, marginRight: buttonMargin, width: "300px"}}
+  var buttonProps = {kind: KIND.default, shape: SHAPE.pill, size: SIZE.large, style: {marginLeft: buttonMargin, marginRight: buttonMargin, width: "300px"}}
   var goButton = (text, link) => <>
       <RouterLink to={link}>
         <Button {...buttonProps}>
@@ -897,6 +905,77 @@ var LandingPage = props => {
     </div>
     {footer}
   </>
+}
+
+var FeedbackButton = props => {
+  var inputRef = React.useRef(null);
+  var [isExpanded, setIsExpanded] = React.useState(false)
+  var [isHidden, setIsHidden] = React.useState(true)
+  var [feedbackText, setFeedbackText] = React.useState("")
+  var [feedbackSuccess, setFeedbackSuccess] = React.useState(null)
+
+  var rollout = () => {setIsExpanded(true), setIsHidden(false)}
+  var rollin = () => {
+    setIsExpanded(false),
+    setTimeout(() => setIsHidden(true), 0.2*1000)
+    setFeedbackText("")
+    setFeedbackSuccess(null)
+  }
+
+  var feedbackInput = <>
+    <div style={{transition: "width " + 0.2 + "s ease-in-out", width: isExpanded ? "350px" : "0px"}}>
+      <div style={{display: isHidden ? "none" : "unset"}}>
+        <Input
+          size={SIZE.compact}
+          onChange={e => {setFeedbackText(e.target.value); setFeedbackSuccess(null)}}
+          value={feedbackText}
+          error={feedbackSuccess != null && !feedbackSuccess}
+          positive={feedbackSuccess != null && feedbackSuccess}
+          inputRef={inputRef} placeholder={"ideas, problems, etc"}/>
+      </div>
+    </div>
+  </>
+  React.useEffect(() => {isExpanded && inputRef.current && inputRef.current.focus()}, [isExpanded])
+  var startFeedbackButton = <Button
+    size={SIZE.compact} kind={KIND.secondary}
+    style={{color: "black", backgroundColor: "white", width: "180px"}}
+    onClick={e => {e.preventDefault(); rollout()}}>
+    Feedback and Contact
+  </Button>
+  var submitFeedback = async () => {
+    if (feedbackSuccess || !feedbackText) {
+      rollin()
+      return
+    }
+    var feedbackData = {
+      id: props.web3Data && props.web3Data.userAddress,
+      feedback: feedbackText,
+    }
+    datastore.setFeedback(feedbackData).then(res => {
+      inputRef.current && inputRef.current.blur()
+      setFeedbackSuccess(true)
+      setTimeout(rollin, 5000)
+    }).catch(e => {
+      setFeedbackSuccess(false)
+      console.log(e)
+    })
+  }
+  var submitFeedbackButton = <Button
+    size={SIZE.compact} kind={KIND.secondary}
+    style={{color: "black", backgroundColor: "white", width: "180px"}}
+    type={"submit"}>
+    Done
+  </Button>
+  var feedbackArea = <>
+    <form onSubmit={e => {e.preventDefault(); submitFeedback()}} style={{margin: "0"}}>
+      <div style={{display: "flex"}}>
+        {!isExpanded ? startFeedbackButton : submitFeedbackButton}
+        {feedbackInput}
+      </div>
+    </form>
+  </>
+
+  return feedbackArea
 }
 
 var Header = props => {
