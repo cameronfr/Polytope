@@ -38,8 +38,10 @@ contract ERC721 is Context, ERC165, IERC721, IERC721Metadata, IERC721Enumerable 
 
     // Metadata fields
     string private _name = "Polytope";
-    string private constant _symbol = "PLY";
+    string private constant _symbol = "POLYTOPE";
     string private constant _baseURI = "https://app.polytope.space/token/";
+    // Mapping from tokenId to tokenMetadataHash. Not necessarily unique.
+    mapping (uint256 => uint256) private _tokenMetadataHashes;
 
     // Enumerable fields
     // Mapping from owner to list of owned token IDs
@@ -84,6 +86,10 @@ contract ERC721 is Context, ERC165, IERC721, IERC721Metadata, IERC721Enumerable 
 
     function tokenURI(uint256 _tokenId) external view returns (string memory) {
       return string(abi.encodePacked(_baseURI, _uint2hex(_tokenId), ".json"));
+    }
+
+    function tokenMetadataHash(uint256 _tokenId) external view returns (uint256) {
+      return _tokenMetadataHashes[_tokenId];
     }
 
     function _uint2hex(uint256 _val) internal pure returns (string memory _uintAsString) {
@@ -274,7 +280,7 @@ contract ERC721 is Context, ERC165, IERC721, IERC721Metadata, IERC721Enumerable 
      * @param to The address that will own the minted token
      * @param tokenId uint256 ID of the token to be minted
      */
-    function mint(address to, uint256 tokenId) external {
+    function mint(address to, uint256 tokenId, uint256 metadataHash) external {
         require(to != address(0), "ERC721: mint to the zero address");
         require(!_exists(tokenId), "ERC721: token already minted");
 
@@ -283,6 +289,7 @@ contract ERC721 is Context, ERC165, IERC721, IERC721Metadata, IERC721Enumerable 
 
         emit Transfer(address(0), to, tokenId);
 
+        _tokenMetadataHashes[tokenId] = metadataHash;
         _addTokenToOwnerEnumeration(to, tokenId);
         _addTokenToAllTokensEnumeration(tokenId);
     }
@@ -303,6 +310,8 @@ contract ERC721 is Context, ERC165, IERC721, IERC721Metadata, IERC721Enumerable 
         _tokenOwner[tokenId] = address(0);
 
         emit Transfer(owner, address(0), tokenId);
+
+        _tokenMetadataHashes[tokenId] = 0;
 
         _removeTokenFromOwnerEnumeration(owner, tokenId);
         // Since tokenId will be deleted, we can clear its slot in _ownedTokensIndex to trigger a gas refund
