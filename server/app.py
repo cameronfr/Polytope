@@ -151,18 +151,19 @@ def getItemDetails():
     id = data["id"].lower()
 
     with datastoreClient.transaction():
-        key = datastoreClient.key("Item", id + metadataHash)
-        item = datastoreClient.get(key)
-        item = item if item is not None else datastore.Entity(key=key)
-        item["visitors"] = item["visitors"] if "visitors" in item else {}
-        visitors = item["visitors"]
+        key = datastoreClient.key("ItemStats", id)
+        itemStats = datastoreClient.get(key)
+        itemStats = itemStats if itemStats is not None else datastore.Entity(key=key)
+        itemStats["visitors"] = itemStats["visitors"] if "visitors" in itemStats else {}
+        visitors = itemStats["visitors"]
         clientIp = get_ipaddr()
         visitors[clientIp] = visitors[clientIp] if clientIp in visitors else {"count": 0}
         clientStats = visitors[clientIp]
         clientStats["lastVisited"] = datetime.datetime.utcnow()
         clientStats["count"] += 1
 
-        datastoreClient.put(item)
+        datastoreClient.put(itemStats)
+        print(itemStats)
 
     return make_response("placeholder", 200)
 
