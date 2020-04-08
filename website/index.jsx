@@ -82,6 +82,7 @@ import {
 
 // Data generation stuff
 import Sentencer from "sentencer"
+import randy from "randy"
 import UsernameGenerator from "username-generator"
 import { decode } from "blurhash"
 import RandomGen from "random-seed"
@@ -117,20 +118,27 @@ class Datastore {
       .reduce((s, c) => Math.imul(31, s) + c.charCodeAt(0) | 0, 0)
   }
 
-  generateUsername() {
+  generateUsername({id}) {
+    var randySeed = {
+      idx: 0,
+      seed: [...Array(32).keys()].map(idx => id.slice(2, id.length).charCodeAt(idx))
+    }
+    randy.setState(randySeed)
+    var randomGen = RandomGen.create(this.hashCode(id))
+
     var processIt = str => {
       str = Sentencer.make(str)
-      if (str && Math.random() < 0.3) {
+      if (str && randomGen.random() < 0.3) {
         str = str[0].toUpperCase() + str.slice(1, str.length)
       }
       return str
     }
 
     var parts = []
-    parts.push(`${Math.random() < 0.3 ? "{{adjective}}" : ""}`)
+    parts.push(`${randomGen.random() < 0.3 ? "{{adjective}}" : ""}`)
     parts.push(`{{noun}}`)
-    parts.push(`${Math.random() < 0.5 ? ".{{noun}}" : ""}`)
-    parts.push(`${Math.random() < 0.4 ? (Math.random()*100).toFixed(0) : ""}`)
+    parts.push(`${randomGen.random() < 0.5 ? ".{{noun}}" : ""}`)
+    parts.push(`${randomGen.random() < 0.4 ? (randomGen.random()*100).toFixed(0) : ""}`)
 
     return parts.map(p => processIt(p)).join("")
   }
@@ -188,19 +196,21 @@ class Datastore {
   }
 
   generateItemData({id}) {
+    var seed = this.hashCode(id)
+    var randomGen = RandomGen.create(seed)
 
-    const price = Math.round(Math.random()*100)/100
+    const price = Math.round(randomGen.random()*100)/100
     var name = Sentencer.make("{{ adjective }} {{ noun }}")
     name = name[0].toUpperCase() + name.slice(1, name.length)
     const ownerId = Web3Utils.sha3(id.toString()).slice(0, 42)
 
     const worldSize = new Vector3(17, 17, 17)
     var gen = (new WorldGenerator({worldSize}))//.worldWithPlate()
-    var range = [...Array(Math.floor(Math.random()*5)+3)]
-    range.forEach(() => gen.randomRectangularPrism())
+    var range = [...Array(Math.floor(randomGen.random()*5)+3)]
+    range.forEach((val, idx) => gen.randomRectangularPrism({seed:seed+idx}))
     const blocks = gen.blocks
 
-    var description = Sentencer.make([...Array(Math.floor(Math.random()*15))].map(i => "{{noun}}").join(" "))
+    var description = Sentencer.make([...Array(Math.floor(randomGen.random()*15))].map(i => "{{noun}}").join(" "))
 
     var authorId = id+10
 
@@ -209,7 +219,7 @@ class Datastore {
   }
 
   generateUserData({id}) {
-    var name = this.generateUsername(id)
+    var name = this.generateUsername({id})
     const avatarURL = undefined
     return {name, avatarURL}
   }
@@ -274,6 +284,18 @@ class App extends React.Component {
   }
 
   componentDidMount() {
+    this.tryAutoLogin()
+  }
+
+  async tryAutoLogin() {
+    if (!window.ethereum) {return}
+    var web3 = {}
+    web3.eth = new Web3Eth(window.ethereum)
+    var accounts = await web3.eth.getAccounts()
+    if (accounts && accounts.length > 0) {
+      // if not null, probably won't have popup when .signIn()
+      this.signIn()
+    }
   }
 
   async signIn() {
@@ -364,7 +386,7 @@ var UserProfile = props => {
   var canvasRef = React.useRef()
   const id = props.id
   var [name, setName] = React.useState()
-  var resetName = async () => {console.log((await datastore.getData({id, kind:"user"})));setName((await datastore.getData({id, kind:"user"})).name)}
+  var resetName = async () => {setName((await datastore.getData({id, kind:"user"})).name)}
 
   React.useEffect(() => {
     resetName()
@@ -1705,7 +1727,9 @@ class WorldGenerator {
 
   // puts random color rand size prism on floor flate
   // working with nddaray-ops not easy
-  randomRectangularPrism() {
+  randomRectangularPrism({seed}) {
+    var randomGen = RandomGen.create(seed)
+
     const worldShape = ndarray(this.blocks.shape.slice(0, 3))
 
     var widths = ndarray(Array(3))
@@ -1721,7 +1745,7 @@ class WorldGenerator {
     np.flooreq(startCornerPos)
     startCornerPos.set(1, 1) //make it rest on the floor plate
 
-    var randomColor = Math.floor(Math.random() * 16) * 1
+    var randomColor = Math.floor(randomGen.random() * 16) * 1
     var prismSlice = this.blocks.lo(...startCornerPos.data, 3).hi(...widths.data, 1)
     np.assigns(prismSlice, randomColor)
 
