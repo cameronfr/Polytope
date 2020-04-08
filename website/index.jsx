@@ -1599,7 +1599,6 @@ class VoxelEditor extends React.Component {
     this.listeners = []
     this.addEventListener(window, "resize", () => this.resizeCamera())
 
-    // parents can access stats.dom to show
     if (globalDebug) {
       this.stats = new Stats();
       this.stats.showPanel(0);
@@ -1616,12 +1615,12 @@ class VoxelEditor extends React.Component {
     var frameCount = 0
     var tick = timestamp => {
       if (document.hasFocus()) {
-        this.stats.begin()
+        globalDebug && this.stats.begin()
         this.controls.externalTick(1/60)
         this.voxelRenderer.render(this.renderTargetID)
         frameCount % (60 * saveIntervalInSeconds) == 0 && this.saveGameState()
         frameCount += 1
-        this.stats.end()
+        globalDebug && this.stats.end()
       }
       this.animationFrameRequestID = window.requestAnimationFrame(tick)
     }
