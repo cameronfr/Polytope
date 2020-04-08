@@ -35,7 +35,7 @@ import { Notification, KIND as NotificationKind} from "baseui/notification";
 import { toaster, ToasterContainer } from "baseui/toast";
 import { Checkbox, LABEL_PLACEMENT } from "baseui/checkbox";
 import { StatefulTooltip } from "baseui/tooltip";
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ChevronRight } from "baseui/icon"
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ChevronRight, Check } from "baseui/icon"
 import { MdMouse } from "react-icons/md"
 import {IoMdHelpCircleOutline, IoMdHelp} from "react-icons/io"
 import { Navigation } from "baseui/side-navigation";
@@ -87,9 +87,15 @@ import UsernameGenerator from "username-generator"
 import { decode } from "blurhash"
 import RandomGen from "random-seed"
 
+// Endpoints
 var APIEndpoint = "https://app.polytope.space"
+const tokenContractABI = require("./tokenABI.json")
+var tokenContractAddress = ""
+var globalDebug = false
 if (process.env.NODE_ENV == "development") {
   APIEndpoint = "http://localhost:5000"
+  tokenContractAddress = "0xb86A615c2817aAf6A03e64b1B92090444d1970a5"
+  globalDebug = true
 }
 
 
@@ -171,20 +177,25 @@ class Datastore {
     }
 
     var data
-    var generatedData
     if (id in this.pendingEndpointCalls[kind]) {
       res = await this.pendingEndpointCalls[kind][id]
+      data = res[id]
     } else if (kind == "user") {
       var call = this.callEndpoint("/getUserData", [id], "POST").then(res => res.json())
       this.pendingEndpointCalls[kind][id] = call
       var res = await call
       data = res[id]
-      generatedData = this.generateUserData({id})
     } else if (kind == "item") {
       var res = {id: null}
       data = res[id]
+    }
+    var generatedData
+    if (kind == "user") {
+      generatedData = this.generateUserData({id})
+    } else if (kind == "item") {
       generatedData = this.generateItemData({id})
     }
+
     delete this.pendingEndpointCalls[kind][id]
     data = {...generatedData, ...data}
 
@@ -270,6 +281,12 @@ class Datastore {
     const {id, feedback} = feedbackData
     var res = await this.callEndpoint("/setFeedback", feedbackData, "POST")
   }
+
+  async setItemData(itemData) {
+    const {metadata, metadataHash, id} = itemData
+    const {name, description, blocks} = metadata
+    var res = await this.callEndpoint("/setItemData", itemData, "POST")
+  }
 }
 
 class App extends React.Component {
@@ -322,7 +339,7 @@ class App extends React.Component {
 
   render() {
     var {userAddress, web3} = this.state
-    var web3Data = {userAddress, web3}
+    var web3Data = {userAddress, web3, signIn: () => this.signIn()}
     return (
       <div style={{display: "grid", gridTemplateRows: "auto 1fr", height: "100%", minWidth: "1000px"}}>
         <ToasterContainer autoHideDuration={3000} overrides={{Root: {style: () => ({zIndex: 2})}}}/>
@@ -338,7 +355,7 @@ class App extends React.Component {
             <Router primary={false}>
               <LandingPage web3Data={web3Data} path="/"/>
               <Listing path="/item/:id"/>
-              <VoxelEditor path="/newItem"/>
+              <VoxelEditor web3Data={web3Data} path="/newItem"/>
             </Router>
           </div>
         </div>
@@ -521,7 +538,7 @@ class Listings extends React.Component {
   }
 
   render() {
-    var cards = [...Array(10).keys()].map(idx => {
+    var cards = [...Array(30).keys()].map(idx => {
       var itemId = Web3Utils.sha3(idx.toString())
       var card = <ListingCard key={idx} id={itemId} voxelRenderer={this.voxelRenderer} imageSize={220} />
       return card
@@ -540,6 +557,7 @@ var ListingCard = props => {
   const imageSize =
 
   React.useEffect(() => {
+    if (!props.voxelRenderer) {return}
     var blockDisplayListeners = []
     var addEventListener = (obj, eventName, func) => {
       blockDisplayListeners.push([obj, eventName, func])
@@ -1071,7 +1089,7 @@ var Header = props => {
 }
 
 var RouterLink = props => {
-  var unstyledLink = <RawRouterLink {...props} style={{textDecoration: "none"}}>
+  var unstyledLink = <RawRouterLink style={{textDecoration: "none"}} {...props} >
     {props.children}
   </RawRouterLink>
   return unstyledLink
@@ -1582,9 +1600,11 @@ class VoxelEditor extends React.Component {
     this.addEventListener(window, "resize", () => this.resizeCamera())
 
     // parents can access stats.dom to show
-    this.stats = new Stats();
-    this.stats.showPanel(0);
-    this.containerRef.current.appendChild(this.stats.dom)
+    if (globalDebug) {
+      this.stats = new Stats();
+      this.stats.showPanel(0);
+      this.containerRef.current.appendChild(this.stats.dom)
+    }
 
     this.voxelRenderer = new VoxelRenderer({canvas: this.canvasRef.current, worldSize: this.gameState.worldSize})
     // this.voxelRenderer = new VoxelRenderer({worldSize, topBorderRadius: 14})
@@ -1660,7 +1680,7 @@ class VoxelEditor extends React.Component {
         this.setState({atPublishDialog: false})
         this.controls.interactionEnabled = true
       }
-      sidebar = <PublishItemPanel onGoBack={onGoBack} blocks={this.getPublishableBlocks()}/>
+      sidebar = <PublishItemPanel web3Data={this.props.web3Data} onGoBack={onGoBack} blocks={this.getPublishableBlocks()}/>
     } else {
       var onContinue = () => {
         this.setState({atPublishDialog: true})
@@ -1975,98 +1995,183 @@ class GameControlPanel extends React.Component {
 }
 
 var PublishItemPanel = props => {
-    this.voxelRenderer = new VoxelRenderer({pixelRatio:window.devicePixelRatio})
-    React.useEffect(() => {this.voxelRenderer.destroy()}, [props.blocks])
+  var [voxelRenderer, setVoxelRenderer] = React.useState()
 
-    [forSale, setForSale] = React.useState(false)
-    [price, setPrice] = React.useState("")
-    [name, setName] = React.useState("")
-    [description, setDescription] = React.useState("")
+  React.useEffect(() => {
+    var renderer = new VoxelRenderer({pixelRatio:window.devicePixelRatio})
+    setVoxelRenderer(renderer)
+    var cleanup = () => {renderer.destroy()}
+    return cleanup
+  }, [])
 
-    // Save some fields in localstorage
-    React.useEffect(() => {
-      var savedState
-      try {
-        savedState = JSON.parse(window.localStorage.getItem("publishItemPanelState"))
-        setForSale(savedState.forSale)
-        setPrice(savedState.price)
-        setName(savedState.name)
-        setDescription(savedState.description)
-      }
-      catch(e) {
-        console.log(e)
-      }
-    }, [])
+  // form fields
+  var [price, setPrice] = React.useState("")
+  var [name, setName] = React.useState("")
+  var [description, setDescription] = React.useState("")
+  var [forSale, setForSale] = React.useState(false)
+
+  // Save some fields in localstorage
+  React.useEffect(() => {
+    var savedState
+    try {
+      savedState = JSON.parse(window.localStorage.getItem("publishItemPanelState"))
+      setForSale(savedState.forSale)
+      setPrice(savedState.price)
+      setName(savedState.name)
+      setDescription(savedState.description)
+    }
+    catch(e) {
+      console.log(e)
+    }
+  }, [])
+  React.useEffect(() => {
     var saveDict = {forSale, price, name, description}
     window.localStorage.setItem("publishItemPanelState", JSON.stringify(saveDict))
+  })
 
-    var ethStringToWei = amountString => {
-      const ETH_DECIMALS = 18
-      var tokenMultiplier = BigNumber(10).pow(BigNumber(ETH_DECIMALS))
-      var convertedAmount = tokenMultiplier.multipliedBy(BigNumber(amountString))
-      return convertedAmount
+  // actual minting stuff
+  var ethStringToWei = amountString => {
+    const ETH_DECIMALS = 18
+    var tokenMultiplier = BigNumber(10).pow(BigNumber(ETH_DECIMALS))
+    var convertedAmount = tokenMultiplier.multipliedBy(BigNumber(amountString))
+    return convertedAmount
+  }
+  var priceBN = ethStringToWei(price)
+  var mintItem = async () => {
+    var stopWithError = (e, msg) => {
+      setNotification(msg)
+      setWaiting("")
+      console.log(msg, e)
     }
+    !props.web3Data.web3 && (await props.web3Data.signIn())
+    var web3 = props.web3Data.web3
+    var userAddress = props.web3Data.userAddress
 
-    var caption = (text, errorText, isError) => <>
-        <Caption1 color={isError ? ["negative400"] : undefined}>
-          {isError ? errorText : text}
-        </Caption1>
-      </>
+    var rawBlocks = Array.from(props.blocks.data)
+    var blocksHash = keccakUtf8(JSON.stringify(rawBlocks))
+    var metadata = {name, description, blocks: rawBlocks}
+    var metadataHash = keccakUtf8(JSON.stringify(metadata))
 
-    var priceBN = ethStringToWei(price)
-    var priceValid = !priceBN.isNaN() && priceBN.gte(0)
 
-    var nameValid = true //name && (/^[a-zA-Z0-9 ]+$/).test(name) // still want emoji
-    var descriptionValid = true //name && (/^[a-zA-Z0-9 ]+$/).test(description)
+    try {
+      setWaiting("Uploading metadata to server")
+      await datastore.setItemData({metadata, metadataHash, id: blocksHash})
+    } catch(e) {
+      stopWithError(e, "Error uploading metadata")
+      return
+    }
+    try {
+      setWaiting("Waiting for mint transaction approval")
+      var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
+      // tokenContract.handleRevert = true //doesn't work
+      tokenContract.methods.mint(userAddress, blocksHash, metadataHash).send({
+        from: userAddress,
+        gas: 400000
+      }).on("transactionHash", hash => {
+        setWaiting("Waiting for transaction confirmation")
+      }).on("receipt", receipt => {
+        setWaiting("")
+        setSuccess({blocksHash, transactionHash: receipt.transactionHash})
+      }).on("error", (error, receipt) => {
+        // since can't see revert message, have to hope these are only errors
+        if (error.status != undefined) {
+          var tokenLink = <>
+            <RouterLink style={{textDecoration: "underline", color: "unset"}} to={`/item/${blocksHash}`}>here</RouterLink>
+          </>
+          stopWithError(error, <>Token already exists {tokenLink}!</>)
+        } else {
+          stopWithError(error, "Not enough gas")
+        }
+        return
+      })
+    } catch(e) {
+      stopWithError(e, "Error starting contract call")
+      return
+    }
+  }
 
-    var allInputValidated = priceValid && nameValid && descriptionValid
-
-    var priceArea = <>
-      <div style={{display: "grid", gridTemplateColumns: "min-content 1fr", whiteSpace: "nowrap", alignItems: "center", columnGap: THEME.sizing.scale600}}>
-        <Checkbox checked={forSale} onChange={e => setForSale(e.target.checked)} labelPlacement={LABEL_PLACEMENT.right}>
-          For sale
-        </Checkbox>
-        <div style={{visibility: forSale ? "unset" : "hidden"}}>
-          <Input size={SIZE.compact} placeholder={"price"} onChange={e => setPrice(e.target.value)} endEnhancer={"ETH"} error={price && !priceValid} inputMode={"decimal"} />
+  var [waiting, setWaiting] = React.useState("")
+  var [notification, setNotification] = React.useState("")
+  var [success, setSuccess] = React.useState(false)
+  var waitingHtml = <>
+    <div style={{display: "grid", rowGap: THEME.sizing.scale600, justifyItems: "center", margin: THEME.sizing.scale600 + " 0px"}}>
+      <Spinner />
+      <LabelMedium style={{textAlign: "center"}}>{waiting}</LabelMedium>
+    </div>
+  </>
+  var notificationHtml = notification ? <Notification kind={NotificationKind.warning} overrides={{Body: {style: {width: 'auto'}}}}>{() => notification}</Notification> : null
+  var successHtml = <>
+    <div style={{display: "grid", rowGap: THEME.sizing.scale600, justifyItems: "center"}}>
+      <div style={{display: "flex", justifyContent: "center", alignItems: "center"}}>
+        <div style={{display: "flex", alignItems: "center", justifyContent: "center", width: "60px", height: "60px", borderRadius: "100%", boxShadow: "0px 0px 3px #ccc", backgroundColor: THEME.colors.positive, margin: THEME.sizing.scale600 + " 0px"}}>
+          <Check size={80} color={["white"]}></Check>
         </div>
+        <LabelLarge style={{marginLeft: THEME.sizing.scale600}}>Token Minted</LabelLarge>
       </div>
+      <a style={{width: "100%"}} href={`https://etherscan.io/tx/${success.transactionHash}`}>
+        <Button style={{width: "100%"}} size={SIZE.compact} kind={KIND.secondary}>View on Etherscan</Button>
+      </a>
+      <RouterLink style={{width: "100%"}} to={`/item/${success.blocksHash}`}>
+        <Button style={{width: "100%"}} size={SIZE.compact} kind={KIND.primary}>Go to Item</Button>
+      </RouterLink>
+    </div>
+  </>
+
+  var caption = (text, errorText, isError) => <>
+      <Caption1 color={isError ? ["negative400"] : undefined}>
+        {isError ? errorText : text}
+      </Caption1>
     </>
 
+  var priceValid = !priceBN.isNaN() && priceBN.gte(0)
+  var nameValid = name //name && (/^[a-zA-Z0-9 ]+$/).test(name) // still want emoji
+  var descriptionValid = description//name && (/^[a-zA-Z0-9 ]+$/).test(description)
+  var allInputValidated = (!forSale || priceValid) && nameValid && descriptionValid
 
-    return <>
-      <div style={{display: "grid", gridTemplateColumns: "1fr", height: "min-content", width: "250px"}}>
-        <LabelMedium>
-          Mint
-        </LabelMedium>
-        {caption("Name of the item (required)", "Name can only have letters and numbers", name && !nameValid)}
-        <Input size={SIZE.compact} placeholder={"Item name"} value={name} onChange={e => setName(e.target.value)} />
-        {caption("Description for the item (required)", "Description can only have letters and numbers", decription && !descriptionValid)}
-        <Input size={SIZE.compact} placeholder={"Item description"} value={description} onChange={e => setDescription(e.target.value)} />
-        <Caption1>
-          Whether to list on the store. You can always change this later.
-        </Caption1>
-        {priceArea}
-        <Caption1>
-          See a preview of your item below
-        </Caption1>
-        <div style={{display: "flex", justifyContent: "center", marginBottom: "1em"}}>
-          <ListingCard listingData={{blocks: props.blocks, name: name, price: price, notForSale: !state.forSale, description: description}} voxelRenderer={voxelRenderer} imageSize={220} autoOrbit />
-        </div>
-        <div style={{display: "grid", gridAutoColumn: "1fr", gridAutoFlow: "column", columnGap: THEME.sizing.scale600}}>
-          <Button size={SIZE.compact} kind={KIND.secondary} onClick={props.onGoBack}> Go back </Button>
-          <Button size={SIZE.compact} kind={KIND.primary} onClick={true} disabled={!allInputValidated}>Mint</Button>
-        </div>
+  var priceArea = <>
+    <div style={{display: "grid", gridTemplateColumns: "min-content 1fr", whiteSpace: "nowrap", alignItems: "center", columnGap: THEME.sizing.scale600}}>
+      <Checkbox checked={forSale} onChange={e => setForSale(e.target.checked)} labelPlacement={LABEL_PLACEMENT.right}>
+        For sale
+      </Checkbox>
+      <div style={{visibility: forSale ? "unset" : "hidden"}}>
+        <Input size={SIZE.compact} placeholder={"price"} onChange={e => setPrice(e.target.value)} endEnhancer={"ETH"} error={price && !priceValid} inputMode={"decimal"} />
       </div>
-    </>
+    </div>
+  </>
+
+  var formArea = <>
+    <LabelMedium>
+      Mint
+    </LabelMedium>
+    <div style={{marginTop: "20px"}}>{notificationHtml}</div>
+    {caption("Name of the item (required)", "Name can only have letters and numbers", name && !nameValid)}
+    <Input size={SIZE.compact} placeholder={"Item name"} value={name} onChange={e => setName(e.target.value)} />
+    {caption("Description for the item (required)", "Description can only have letters and numbers", description && !descriptionValid)}
+    <Input size={SIZE.compact} placeholder={"Item description"} value={description} onChange={e => setDescription(e.target.value)} />
+    <Caption1>
+      Whether to list on the store. You can always change this later.
+    </Caption1>
+    {priceArea}
+    <Caption1>
+      See a preview of your item below
+    </Caption1>
+    <div style={{display: "flex", justifyContent: "center", marginBottom: "1em"}}>
+      <ListingCard listingData={{blocks: props.blocks, name: name, price: price, notForSale: !forSale, description: description}} voxelRenderer={voxelRenderer} imageSize={220} autoOrbit />
+    </div>
+    <div style={{display: "grid", gridAutoColumn: "1fr", gridAutoFlow: "column", columnGap: THEME.sizing.scale600}}>
+      <Button size={SIZE.compact} kind={KIND.secondary} onClick={props.onGoBack}> Go back </Button>
+      <Button size={SIZE.compact} kind={KIND.primary} onClick={mintItem} disabled={!allInputValidated}>Mint</Button>
+    </div>
+  </>
+
+
+  return <>
+    <div style={{display: "grid", gridTemplateColumns: "1fr", height: "min-content", width: "250px"}}>
+      {success ? successHtml : (waiting ? waitingHtml : formArea)}
+    </div>
+  </>
 }
 
-var MintItemFlow = props => {
-  // combine this with other component
-    var blockHash = keccakUint8Array(props.blocks.data)
-    // sign metadata
-    // upload metadata to server, have it verified
-    // web3 call contract mint function
-}
 
 class ResetButtonWithConfirm extends React.Component {
   constructor(props) {
@@ -2513,7 +2618,14 @@ class AutomaticOrbiter {
 function keccakUint8Array(array) {
   const hash = new Keccak(256)
   hash.update(Buffer.from(array))
-  hashHex = "0x" + hash.digest("hex")
+  var hashHex = "0x" + hash.digest("hex")
+  return hashHex
+}
+
+function keccakUtf8(string) {
+  const hash = new Keccak(256)
+  hash.update(string, "utf8")
+  var hashHex = "0x" + hash.digest("hex")
   return hashHex
 }
 

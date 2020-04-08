@@ -40,9 +40,9 @@ def addCORS(response):
 
 @app.route("/")
 def hello_world():
-    target = os.environ.get("TARGET", "World")
-    return "Hello {}!\n".format(target)
+    return "Hi, welcome."
 
+# batch method
 @app.route("/getUserData", methods=["POST"])
 def getUserData():
     data = request.json
@@ -79,12 +79,12 @@ def setUserSettings():
     data = request.json
     message = data["message"]
     signature = data["signature"]
-    id = data["id"] #address
+    id = data["id"].lower() #address
 
     # validate that message has been signed by address
     hash = defunct_hash_message(message.encode("utf-8")) # prepends / appends some stuff, then sha3-s
-    messageSigner = w3.eth.account.recoverHash(hash, signature=signature)
-    assert (messageSigner.lower() == id.lower())
+    messageSigner = w3.eth.account.recoverHash(hash, signature=signature).lower()
+    assert (messageSigner == id)
 
     # parse the message
     regex = r"""^I'm updating my preferences on Polytope with the username (?P<name>.*) and the email (?P<email>.*). This request is valid until (?P<validUntil>.*)$"""
@@ -97,7 +97,7 @@ def setUserSettings():
     assert (len(name) > 0)
 
     with datastoreClient.transaction():
-        key = datastoreClient.key("User", id.lower())
+        key = datastoreClient.key("User", id)
         user = datastoreClient.get(key)
         user = user if user is not None else datastore.Entity(key=key)
 
@@ -109,6 +109,62 @@ def setUserSettings():
     ipAddress = get_ipaddr() #x-forwarded-for, from cloud run.
     logging.info(f"Updated user {id} to name {name} and email {email}. Request from ip {ipAddress}.")
     return make_response("success", 200)
+
+
+@app.route("/setItemData", methods=["POST"])
+def setItemData():
+    data = request.json
+    id = data["id"]
+    metadata = data["metadata"]
+    metadataHash = data["metadataHash"]
+
+    key = datastoreClient.key("Item")
+    item = datastore.Entity(key=key)
+    item["id"] = id
+    item["metadata"] = metadata
+    item["metadataHash"] = metadataHash
+    datastoreClient.put(item)
+
+    ipAddress = get_ipaddr()
+    logging.info(f"""Created item metadata with id {id} and name {metadata["name"]} and description {metadata["description"]} and metadataHash {metadataHash}. Request from ip {ipAddress}.""")
+    return make_response("success", 200)
+
+# batch method
+@app.route("/getItemData", methods=["POST"])
+def getItemData():
+    data = request.json
+
+    items = {}
+    for id in data:
+        id = id.lower()
+        query = datastoreClient.query(kind="Item")
+        query.add_filter("id", "=", id)
+        results = list(query.fetch()) # multiple because may be some fake-metadata items
+        items[id] = results
+
+    return make_response(items, 200)
+
+# used for setting popularity stats for now
+@app.route("/getItemDetails", methods=["POST"])
+def getItemDetails():
+    data = request.json
+    id = data["id"].lower()
+
+    with datastoreClient.transaction():
+        key = datastoreClient.key("Item", id + metadataHash)
+        item = datastoreClient.get(key)
+        item = item if item is not None else datastore.Entity(key=key)
+        item["visitors"] = item["visitors"] if "visitors" in item else {}
+        visitors = item["visitors"]
+        clientIp = get_ipaddr()
+        visitors[clientIp] = visitors[clientIp] if clientIp in visitors else {"count": 0}
+        clientStats = visitors[clientIp]
+        clientStats["lastVisited"] = datetime.datetime.utcnow()
+        clientStats["count"] += 1
+
+        datastoreClient.put(item)
+
+    return make_response("placeholder", 200)
 
 # gunicorn does not run this
 if __name__ == "__main__":
