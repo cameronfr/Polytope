@@ -174,8 +174,7 @@ class Datastore {
     var generatedData
     if (id in this.pendingEndpointCalls[kind]) {
       res = await this.pendingEndpointCalls[kind][id]
-    }
-    if (kind == "user") {
+    } else if (kind == "user") {
       var call = this.callEndpoint("/getUserData", [id], "POST").then(res => res.json())
       this.pendingEndpointCalls[kind][id] = call
       var res = await call
@@ -1975,74 +1974,63 @@ class GameControlPanel extends React.Component {
   }
 }
 
-class PublishItemPanel extends React.Component {
-  constructor(props) {
-    super(props)
-    // should take ndarray blockdata as input
-
+var PublishItemPanel = props => {
     this.voxelRenderer = new VoxelRenderer({pixelRatio:window.devicePixelRatio})
+    React.useEffect(() => {this.voxelRenderer.destroy()}, [props.blocks])
 
-    var savedState
-    try {savedState = JSON.parse(window.localStorage.getItem("publishItemPanelState"))}
-    catch(e) {console.log(e)}
+    [forSale, setForSale] = React.useState(false)
+    [price, setPrice] = React.useState("")
+    [name, setName] = React.useState("")
+    [description, setDescription] = React.useState("")
 
-    this.state = savedState || {
-      forSale: false,
-      price: "",
-      name: "",
-      description: "",
+    // Save some fields in localstorage
+    React.useEffect(() => {
+      var savedState
+      try {
+        savedState = JSON.parse(window.localStorage.getItem("publishItemPanelState"))
+        setForSale(savedState.forSale)
+        setPrice(savedState.price)
+        setName(savedState.name)
+        setDescription(savedState.description)
+      }
+      catch(e) {
+        console.log(e)
+      }
+    }, [])
+    var saveDict = {forSale, price, name, description}
+    window.localStorage.setItem("publishItemPanelState", JSON.stringify(saveDict))
+
+    var ethStringToWei = amountString => {
+      const ETH_DECIMALS = 18
+      var tokenMultiplier = BigNumber(10).pow(BigNumber(ETH_DECIMALS))
+      var convertedAmount = tokenMultiplier.multipliedBy(BigNumber(amountString))
+      return convertedAmount
     }
 
-  }
-
-  componentWillUnmount() {
-    this.voxelRenderer.destroy()
-  }
-
-  componentDidUpdate() {
-    window.localStorage.setItem("publishItemPanelState", JSON.stringify(this.state))
-  }
-
-  onMint() {
-    // finished =>
-    // clear localstorage
-    // reset blocks
-  }
-
-  ethStringToWei(amountString) {
-    const ETH_DECIMALS = 18
-    var tokenMultiplier = BigNumber(10).pow(BigNumber(ETH_DECIMALS))
-    var convertedAmount = tokenMultiplier.multipliedBy(BigNumber(amountString))
-    return convertedAmount
-  }
-
-
-  render() {
     var caption = (text, errorText, isError) => <>
         <Caption1 color={isError ? ["negative400"] : undefined}>
           {isError ? errorText : text}
         </Caption1>
       </>
 
-    var priceBN = this.ethStringToWei(this.state.price)
+    var priceBN = ethStringToWei(price)
     var priceValid = !priceBN.isNaN() && priceBN.gte(0)
 
-    var nameValid = true //this.state.name && (/^[a-zA-Z0-9 ]+$/).test(this.state.name) // still want emoji
-
-    var descriptionValid = true //this.state.name && (/^[a-zA-Z0-9 ]+$/).test(this.state.description)
+    var nameValid = true //name && (/^[a-zA-Z0-9 ]+$/).test(name) // still want emoji
+    var descriptionValid = true //name && (/^[a-zA-Z0-9 ]+$/).test(description)
 
     var allInputValidated = priceValid && nameValid && descriptionValid
-        // <ArrowLeft size={28} />
 
-    var priceArea = <div style={{display: "grid", gridTemplateColumns: "min-content 1fr", whiteSpace: "nowrap", alignItems: "center", columnGap: THEME.sizing.scale600}}>
-      <Checkbox checked={this.state.forSale} onChange={e => this.setState({forSale: e.target.checked})} labelPlacement={LABEL_PLACEMENT.right}>
-        For sale
-      </Checkbox>
-      <div style={{visibility: this.state.forSale ? "unset" : "hidden"}}>
-        <Input size={SIZE.compact} placeholder={"price"} onChange={e => this.setState({price: e.target.value})} endEnhancer={"ETH"} error={this.state.price && !priceValid} inputMode={"decimal"} />
+    var priceArea = <>
+      <div style={{display: "grid", gridTemplateColumns: "min-content 1fr", whiteSpace: "nowrap", alignItems: "center", columnGap: THEME.sizing.scale600}}>
+        <Checkbox checked={forSale} onChange={e => setForSale(e.target.checked)} labelPlacement={LABEL_PLACEMENT.right}>
+          For sale
+        </Checkbox>
+        <div style={{visibility: forSale ? "unset" : "hidden"}}>
+          <Input size={SIZE.compact} placeholder={"price"} onChange={e => setPrice(e.target.value)} endEnhancer={"ETH"} error={price && !priceValid} inputMode={"decimal"} />
+        </div>
       </div>
-
-    </div>
+    </>
 
 
     return <>
@@ -2050,10 +2038,10 @@ class PublishItemPanel extends React.Component {
         <LabelMedium>
           Mint
         </LabelMedium>
-        {caption("Name of the item (required)", "Name can only have letters and numbers", this.state.name && !nameValid)}
-        <Input size={SIZE.compact} placeholder={"Item name"} value={this.state.name} onChange={e => {this.setState({name: e.target.value})}} />
-        {caption("Description for the item (required)", "Description can only have letters and numbers", this.state.decription && !descriptionValid)}
-        <Input size={SIZE.compact} placeholder={"Item description"} value={this.state.description} onChange={e => {this.setState({description: e.target.value})}} />
+        {caption("Name of the item (required)", "Name can only have letters and numbers", name && !nameValid)}
+        <Input size={SIZE.compact} placeholder={"Item name"} value={name} onChange={e => setName(e.target.value)} />
+        {caption("Description for the item (required)", "Description can only have letters and numbers", decription && !descriptionValid)}
+        <Input size={SIZE.compact} placeholder={"Item description"} value={description} onChange={e => setDescription(e.target.value)} />
         <Caption1>
           Whether to list on the store. You can always change this later.
         </Caption1>
@@ -2062,15 +2050,14 @@ class PublishItemPanel extends React.Component {
           See a preview of your item below
         </Caption1>
         <div style={{display: "flex", justifyContent: "center", marginBottom: "1em"}}>
-          <ListingCard listingData={{blocks: this.props.blocks, name: this.state.name, price: this.state.price, notForSale: !this.state.forSale, description: this.state.description}} voxelRenderer={this.voxelRenderer} imageSize={220} autoOrbit />
+          <ListingCard listingData={{blocks: props.blocks, name: name, price: price, notForSale: !state.forSale, description: description}} voxelRenderer={voxelRenderer} imageSize={220} autoOrbit />
         </div>
         <div style={{display: "grid", gridAutoColumn: "1fr", gridAutoFlow: "column", columnGap: THEME.sizing.scale600}}>
-          <Button size={SIZE.compact} kind={KIND.secondary} onClick={this.props.onGoBack}> Go back </Button>
+          <Button size={SIZE.compact} kind={KIND.secondary} onClick={props.onGoBack}> Go back </Button>
           <Button size={SIZE.compact} kind={KIND.primary} onClick={true} disabled={!allInputValidated}>Mint</Button>
         </div>
       </div>
     </>
-  }
 }
 
 var MintItemFlow = props => {
