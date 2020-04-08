@@ -176,24 +176,31 @@ class Datastore {
       return this.cache[kind][id].data
     }
 
-    var data
+    var res
     if (id in this.pendingEndpointCalls[kind]) {
       res = await this.pendingEndpointCalls[kind][id]
-      data = res[id]
     } else if (kind == "user") {
       var call = this.callEndpoint("/getUserData", [id], "POST").then(res => res.json())
       this.pendingEndpointCalls[kind][id] = call
-      var res = await call
-      data = res[id]
+      res = await call
     } else if (kind == "item") {
-      var res = {id: null}
-      data = res[id]
+      var call = this.callEndpoint("/getItemData", [id], "POST").then(res => res.json())
+      this.pendingEndpointCalls[kind][id] = call
+      var res = await call
     }
+    var data
     var generatedData
     if (kind == "user") {
       generatedData = this.generateUserData({id})
+      data = res[id]
     } else if (kind == "item") {
       generatedData = this.generateItemData({id})
+      var rawData = res && res[id][0]
+      var rawBlocks = ndarray(new Uint8Array(rawData.metadata.blocks), [16,16,16,4])
+      var blocks = ndarray(new Uint8Array(17*17*17*4), [17, 17, 17, 4])
+      var nonFloorSlice = blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 4)
+      np.assign(nonFloorSlice, rawBlocks)
+      data = {name: rawData.metadata.name, description: rawData.metadata.description, blocks}
     }
 
     delete this.pendingEndpointCalls[kind][id]
@@ -286,6 +293,10 @@ class Datastore {
     const {metadata, metadataHash, id} = itemData
     const {name, description, blocks} = metadata
     var res = await this.callEndpoint("/setItemData", itemData, "POST")
+  }
+
+  async getItemDetails({id}) {
+    var res = await this.callEndpoint("/getItemDetails", {id}, "POST")
   }
 }
 
@@ -738,6 +749,11 @@ var useGetFromDatastore = ({id, kind, dontUse}) => {
 var Listing = props => {
   const viewAreaSize = 500
   const canvasRef = React.useRef()
+
+  // Listing details
+  React.useEffect(() => {
+    datastore.getItemDetails({id: props.id})
+  }, [props.id])
 
   // Game setup and destroy
   React.useEffect(() => {
@@ -2107,11 +2123,15 @@ var PublishItemPanel = props => {
         </div>
         <LabelLarge style={{marginLeft: THEME.sizing.scale600}}>Token Minted</LabelLarge>
       </div>
-      <a style={{width: "100%"}} href={`https://etherscan.io/tx/${success.transactionHash}`}>
-        <Button style={{width: "100%"}} size={SIZE.compact} kind={KIND.secondary}>View on Etherscan</Button>
+      <a style={{width: "100%", textDecoration: "none"}} href={`https://etherscan.io/tx/${success.transactionHash}`}>
+        <Button style={{width: "100%"}} size={SIZE.compact} kind={KIND.secondary}>
+          View on Etherscan
+        </Button>
       </a>
       <RouterLink style={{width: "100%"}} to={`/item/${success.blocksHash}`}>
-        <Button style={{width: "100%"}} size={SIZE.compact} kind={KIND.primary}>Go to Item</Button>
+        <Button style={{width: "100%"}} size={SIZE.compact} kind={KIND.primary}>
+          Go to Item
+        </Button>
       </RouterLink>
     </div>
   </>
