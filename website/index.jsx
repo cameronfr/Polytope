@@ -196,11 +196,13 @@ class Datastore {
     } else if (kind == "item") {
       generatedData = this.generateItemData({id})
       var rawData = res && res[id][0]
-      var rawBlocks = ndarray(new Uint8Array(rawData.metadata.blocks), [16,16,16,4])
-      var blocks = ndarray(new Uint8Array(17*17*17*4), [17, 17, 17, 4])
-      var nonFloorSlice = blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 4)
-      np.assign(nonFloorSlice, rawBlocks)
-      data = {name: rawData.metadata.name, description: rawData.metadata.description, blocks}
+      if (rawData) {
+        var rawBlocks = ndarray(new Uint8Array(rawData.metadata.blocks), [16,16,16,4])
+        var blocks = ndarray(new Uint8Array(17*17*17*4), [17, 17, 17, 4])
+        var nonFloorSlice = blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 4)
+        np.assign(nonFloorSlice, rawBlocks)
+        data = {name: rawData.metadata.name, description: rawData.metadata.description, blocks}
+      }
     }
 
     delete this.pendingEndpointCalls[kind][id]
@@ -300,6 +302,74 @@ class Datastore {
   }
 }
 
+class TokenFetcher {
+  // get popular goes in Datastore => {ids}, getByOwner => list of {ids} -- don't think there are batch methods
+  // so can have master method that takes {id} => item: {blockchain fields, metadatafields} and verification
+    // blockchain: date created, ownerId, authorId, metadataHash (to verify against hash of metadata)
+    // metadata  : blocks (to verify against tokenId), name, description
+    // These have to be "merged" to get a full item
+  async getByOwner({id, web3}) {
+    var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
+    var numTokens = await tokenContract.methods.balanceOf(id).call()
+    numTokens = parseInt(numTokens)
+    var tokens = []
+    var fetchPromises = [...Array(numTokens).keys()].map(async (idx) => {
+      var tokenId = await tokenContract.methods.tokenOfOwnerByIndex(id, idx).call()
+      tokenId = Web3Utils.padLeft(Web3Utils.toHex(tokenId), 256/4)
+      tokens.push({id: tokenId, ownerId: id})
+    })
+    await Promise.all(fetchPromises)
+
+    await this.finishProcessing({tokens, web3})
+    console.log(tokens)
+  }
+
+  async setItemAuthorAndDate({token, tokenContract, web3}) {
+    // better to batch the getPastEvents (i.e. can pass array to filter.tokenId for batch)
+    const zeroAddress = "0x0000000000000000000000000000000000000000"
+    var res = await tokenContract.getPastEvents("Transfer", {
+      fromBlock: 0,
+      filter: {from: zeroAddress, tokenId: token.id}
+    })
+    var creationEvent = res[0]
+    var blockNumber = creationEvent.blockNumber
+    var dateCreated = (await web3.eth.getBlock(blockNumber)).timestamp
+    var author = creationEvent.returnValues.to
+    Object.assign(token, {dateCreated, author})
+  }
+
+  async setItemOwner({token, tokenContract}) {
+    var ownerId = tokenContract.methods.ownerOf(token.id).call()
+    Object.assign(token, {objectId})
+  }
+
+  async setItemMetadataHash({token, tokenContract}) {
+    var metadataHash = await tokenContract.methods.tokenMetadataHash(token.id).call()
+    metadataHash = Web3Utils.padLeft(Web3Utils.toHex(metadataHash), 256/4)
+    Object.assign(token, {metadataHash})
+  }
+
+  // assumes tokens have at least their id. COULD also assume that all input tokens have same missing fields.
+  async finishProcessing({tokens, web3}) {
+    var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
+
+    var fetchPromises = tokens.map(async (token) => {
+      var promises = []
+      if (!("ownerId" in token)) {
+        // promises.push(this.setItemOwner({token, tokenContract}))
+      }
+      if (!("authorId" in token && "dateCreated" in token)) {
+        promises.push(this.setItemAuthorAndDate({token, tokenContract, web3}))
+      }
+      if (!("metadataHash" in token)) {
+        promises.push(this.setItemMetadataHash({token, tokenContract}))
+      }
+      await Promise.all(promises)
+    })
+    await Promise.all(fetchPromises)
+  }
+}
+
 class App extends React.Component {
 
   constructor(props) {
@@ -377,10 +447,11 @@ class App extends React.Component {
 
 var SidebarAndListings = props => {
   const sidebarItems = [
-    {title: "Cheap"},
-    {title: "New"},
-    {title: "Old"},
+    {title: "Random"},
     {title: "Popular"},
+    {title: "New"},
+    {title: "Cheap"},
+    {title: "Old"},
     {title: "Expensive"},
   ]
   const navigationItems = sidebarItems.map(({title}) => ({title, itemId: "#"+title.toLowerCase()}))
@@ -396,6 +467,10 @@ var SidebarAndListings = props => {
     event.preventDefault()
     navigate(item.itemId)
   }
+
+  // setting window title
+  if (activeSidebarId) {document.title = `Polytope | ${activeSidebarId}`}
+
   return <div style={{display: "grid", gridTemplateColumns: "auto 1fr", height: "100%"}}>
     <div style={{width: "200px", marginLeft: THEME.sizing.scale1400, marginTop: THEME.sizing.scale1400, boxSizing: "border-box"}}>
       <Navigation items={navigationItems} activeItemId={activeSidebarId} onChange={onChange}/>
@@ -425,8 +500,11 @@ var UserProfile = props => {
     datastore.generateApparatus(canvasRef.current, props.id)
   }, [props.id])
 
+
+
   const profilePicSize = 200
 
+  // Below is for editing name and email
   const [isEditing, setIsEditing] = React.useState(false)
   var editButton = null
   if (props.web3Data.userAddress == id) {
@@ -508,6 +586,12 @@ var UserProfile = props => {
     </div>
     <LabelSmall>{waiting}</LabelSmall>
   </>
+
+  // Getting their items
+  props.web3Data.web3 && tokenFetcher.getByOwner({id: props.id, web3: props.web3Data.web3})
+
+  // setting window title
+  if (name) {document.title = `Polytope | ${name}`}
 
   return <div style={{display: "grid", gridTemplateColumns: "auto 1fr", height: "100%"}}>
     <div style={{width: "200px", marginLeft: THEME.sizing.scale1400, marginTop: THEME.sizing.scale1400}}>
@@ -793,6 +877,9 @@ var Listing = props => {
   var owner = useGetFromDatastore({id: item && item.ownerId, kind: "user"})
   var author = useGetFromDatastore({id: item && item.authorId, kind: "user"})
 
+  // setting window title
+  if (item.name) {document.title = `Polytope | ${item.name}`}
+
   const blockMargins = 28
 
   return <>
@@ -936,6 +1023,7 @@ var LandingPage = props => {
   const clipPath = "polygon(0 0, 100% 0, 100% 0%, 0% 100%)"
   const backgroundColor = "#eee"
 
+  document.title = `Polytope`
   return <>
     <div style={{display: "grid", padding: THEME.sizing.scale1400, backgroundColor: backgroundColor}}>
       <DisplaySmall>
@@ -986,7 +1074,9 @@ var FeedbackButton = props => {
           value={feedbackText}
           error={feedbackSuccess != null && !feedbackSuccess}
           positive={feedbackSuccess != null && feedbackSuccess}
-          inputRef={inputRef} placeholder={"ideas, problems, etc"}/>
+          inputRef={inputRef} placeholder={"ideas, problems, etc"}
+          overrides={{InputContainer: {style: {height: "36px", border: "none"}}}}
+        />
       </div>
     </div>
   </>
@@ -1704,6 +1794,8 @@ class VoxelEditor extends React.Component {
       sidebar = <GameControlPanel gameState={this.gameState} reset={()=>this.resetGameState()} onContinue={onContinue} />
     }
 
+
+    document.title = `Polytope | Create Item`
 
     return (
       <div style={{width: "100%", height:"100%"}}>
@@ -2651,6 +2743,7 @@ function keccakUtf8(string) {
 // Code that runs in module
 
 const datastore = new Datastore()
+const tokenFetcher = new TokenFetcher()
 const THEME = LightTheme
 const engine = new Styletron();
 
