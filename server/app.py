@@ -101,7 +101,8 @@ def setUserSettings():
         user = datastoreClient.get(key)
         user = user if user is not None else datastore.Entity(key=key)
 
-        user["email"] = user["email"] if email is "" else email
+        currentEmail = "" if ("email" not in user) else user["email"]
+        user["email"] = currentEmail if email is "" else email
         user["name"] = name
 
         datastoreClient.put(user)

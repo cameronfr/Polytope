@@ -98,26 +98,9 @@ if (process.env.NODE_ENV == "development") {
   globalDebug = true
 }
 
-
-class Datastore {
-
-  cache = {
-    user: {},
-    item: {},
-  }
-  pendingEndpointCalls= {
-    user: {},
-    item: {},
-  }
-
-  subscriptionCounter = 0
+class APIFetcher {
 
   apparatusGenerator = new ApparatusGenerator()
-
-  nullType = {
-    "user": {name: null, avatarURL: null},
-    "item": {price: null, name: null, description: null, notForSale: null, authorId: null, ownerId: null}
-  }
 
   hashCode(str) {
     return Array.from(String(str))
@@ -170,50 +153,6 @@ class Datastore {
     this.apparatusGenerator.generateAndCopy({targetCanvas, seed})
   }
 
-  async getData({id, kind, overrideCache}) {
-    id = id.toLowerCase()
-    if ((id in this.cache[kind]) && (this.cache[kind][id].data) && !overrideCache) {
-      return this.cache[kind][id].data
-    }
-
-    var res
-    if (id in this.pendingEndpointCalls[kind]) {
-      res = await this.pendingEndpointCalls[kind][id]
-    } else if (kind == "user") {
-      var call = this.callEndpoint("/getUserData", [id], "POST").then(res => res.json())
-      this.pendingEndpointCalls[kind][id] = call
-      res = await call
-    } else if (kind == "item") {
-      var call = this.callEndpoint("/getItemData", [id], "POST").then(res => res.json())
-      this.pendingEndpointCalls[kind][id] = call
-      var res = await call
-    }
-    var data
-    var generatedData
-    if (kind == "user") {
-      generatedData = this.generateUserData({id})
-      data = res[id]
-    } else if (kind == "item") {
-      generatedData = this.generateItemData({id})
-      var rawData = res && res[id][0]
-      if (rawData) {
-        var rawBlocks = ndarray(new Uint8Array(rawData.metadata.blocks), [16,16,16,4])
-        var blocks = ndarray(new Uint8Array(17*17*17*4), [17, 17, 17, 4])
-        var nonFloorSlice = blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 4)
-        np.assign(nonFloorSlice, rawBlocks)
-        data = {name: rawData.metadata.name, description: rawData.metadata.description, blocks}
-      }
-    }
-
-    delete this.pendingEndpointCalls[kind][id]
-    data = {...generatedData, ...data}
-
-    this.cache[kind][id] = this.cache[kind][id] || {data: null, subscribers: {}}
-    this.cache[kind][id].data = data
-    Object.values(this.cache[kind][id].subscribers).forEach(callback => callback(data))
-    return data
-  }
-
   generateItemData({id}) {
     var seed = this.hashCode(id)
     var randomGen = RandomGen.create(seed)
@@ -237,48 +176,29 @@ class Datastore {
     return data
   }
 
-  generateUserData({id}) {
-    var name = this.generateUsername({id})
-    const avatarURL = undefined
-    return {name, avatarURL}
-  }
-
-  addSubscription({id, kind, callback}) {
+  async getUser({id}) {
     id = id.toLowerCase()
-    this.subscriptionCounter += 1
-    const subscriptionId = this.subscriptionCounter
-    this.cache[kind][id] = this.cache[kind][id] || {data: undefined, subscribers: {}}
-    this.cache[kind][id].subscribers[subscriptionId] = callback
-    return subscriptionId
+    var call = this.callEndpoint("/getUserData", [id], "POST").then(res => res.json())
+    var {name} = (await call)[id]
+
+    var user = {
+      name: name || this.generateUsername({id}),
+      avatarURL: undefined,
+      avatarFunction: canvas => this.generateApparatus(canvas, id),
+    }
+
+    return user
   }
 
-  removeSubscription({id, kind, subscriptionId}) {
+  async getItem({id}) {
     id = id.toLowerCase()
-    delete this.cache[kind][id].subscribers[subscriptionId]
-  }
 
-  // async getUserDataBatch(ids) {
-  //   var res = await this.callEndpoint("/getUserData", ids, "POST").json()
-  //   var users = {}
-  //   ids.map(id => {
-  //     const name = (res[id] && res[id].name) || this.generateRandomUsername(id)
-  //     const avatarURL = undefined
-  //     var data = {name, avatarURL}
-  //     users[id] = data
-  //     this.cache.user[id] = data
-  //   })
-  //   return users
-  // }
+    var call = this.callEndpoint("/getItemData", [id], "POST").then(res => res.json())
+    var res = await call
+    if (!res[id] || !res[id][0]) {throw "Item data not found on server"}
+    var rawData = res[id][0]
 
-  async callEndpoint(endpointFunction, dataDict, method) {
-    var res = await fetch(APIEndpoint+endpointFunction, {
-      method,
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(dataDict)
-    })
-    return res
+    return rawData
   }
 
   async setUserData(messageData) {
@@ -300,9 +220,21 @@ class Datastore {
   async getItemDetails({id}) {
     var res = await this.callEndpoint("/getItemDetails", {id}, "POST")
   }
+
+  async callEndpoint(endpointFunction, dataDict, method) {
+    var res = await fetch(APIEndpoint+endpointFunction, {
+      method,
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(dataDict)
+    })
+    return res
+  }
 }
 
 class TokenFetcher {
+
   // get popular goes in Datastore => {ids}, getByOwner => list of {ids} -- don't think there are batch methods
   // so can have master method that takes {id} => item: {blockchain fields, metadatafields} and verification
     // blockchain: date created, ownerId, authorId, metadataHash (to verify against hash of metadata)
@@ -316,15 +248,16 @@ class TokenFetcher {
     var fetchPromises = [...Array(numTokens).keys()].map(async (idx) => {
       var tokenId = await tokenContract.methods.tokenOfOwnerByIndex(id, idx).call()
       tokenId = Web3Utils.padLeft(Web3Utils.toHex(tokenId), 256/4)
-      tokens.push({id: tokenId, ownerId: id})
+      // tokens.push({id: tokenId, ownerId: id})
+      tokens.push(tokenId)
     })
     await Promise.all(fetchPromises)
 
-    await this.finishProcessing({tokens, web3})
-    console.log(tokens)
+    // await this.finishProcessing({tokens, web3})
+    return tokens
   }
 
-  async setItemAuthorAndDate({token, tokenContract, web3}) {
+  async addItemAuthorAndDate({token, tokenContract, web3}) {
     // better to batch the getPastEvents (i.e. can pass array to filter.tokenId for batch)
     const zeroAddress = "0x0000000000000000000000000000000000000000"
     var res = await tokenContract.getPastEvents("Transfer", {
@@ -334,50 +267,262 @@ class TokenFetcher {
     var creationEvent = res[0]
     var blockNumber = creationEvent.blockNumber
     var dateCreated = (await web3.eth.getBlock(blockNumber)).timestamp
-    var author = creationEvent.returnValues.to
-    Object.assign(token, {dateCreated, author})
+    var authorId = creationEvent.returnValues.to
+    Object.assign(token, {dateCreated, authorId})
   }
 
-  async setItemOwner({token, tokenContract}) {
-    var ownerId = tokenContract.methods.ownerOf(token.id).call()
-    Object.assign(token, {objectId})
+  async addItemOwner({token, tokenContract}) {
+    var ownerId = await tokenContract.methods.ownerOf(token.id).call()
+    Object.assign(token, {ownerId})
   }
 
-  async setItemMetadataHash({token, tokenContract}) {
+  async addItemMetadataHash({token, tokenContract}) {
     var metadataHash = await tokenContract.methods.tokenMetadataHash(token.id).call()
     metadataHash = Web3Utils.padLeft(Web3Utils.toHex(metadataHash), 256/4)
     Object.assign(token, {metadataHash})
   }
 
   // assumes tokens have at least their id. COULD also assume that all input tokens have same missing fields.
-  async finishProcessing({tokens, web3}) {
+  async finishProcesing({token, web3}) {
     var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
 
-    var fetchPromises = tokens.map(async (token) => {
-      var promises = []
-      if (!("ownerId" in token)) {
-        // promises.push(this.setItemOwner({token, tokenContract}))
-      }
-      if (!("authorId" in token && "dateCreated" in token)) {
-        promises.push(this.setItemAuthorAndDate({token, tokenContract, web3}))
-      }
-      if (!("metadataHash" in token)) {
-        promises.push(this.setItemMetadataHash({token, tokenContract}))
-      }
-      await Promise.all(promises)
+    var promises = []
+    if (!("ownerId" in token)) {
+      promises.push(this.addItemOwner({token, tokenContract}))
+    }
+    if (!("authorId" in token && "dateCreated" in token)) {
+      promises.push(this.addItemAuthorAndDate({token, tokenContract, web3}))
+    }
+    if (!("metadataHash" in token)) {
+      promises.push(this.addItemMetadataHash({token, tokenContract}))
+    }
+    await Promise.all(promises)
+    return token
+  }
+
+  mintToken({tokenId, metadataHash, userAddress, web3}) {
+    var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
+    var send = tokenContract.methods.mint(userAddress, tokenId, metadataHash).send({
+      from: userAddress,
+      gas: 400000
     })
-    await Promise.all(fetchPromises)
+    return send
+  }
+
+  async getUserAddress({web3}) {
+    var accounts = await web3.eth.getAccounts()
+    var userAddress = accounts[0]
+    return userAddress
   }
 }
+
+
+class Datastore {
+
+  cache = {
+    user: {},
+    item: {},
+    web3Stuff: {},
+  }
+  pendingEndpointCalls= {
+    user: {},
+    item: {},
+    web3Stuff: {},
+  }
+  web3 = null
+
+  subscriptionCounter = 0
+
+  nullType = {
+    "user": {name: null, avatarURL: null},
+    "item": {price: null, name: null, description: null, notForSale: null, authorId: null, ownerId: null},
+  }
+
+  apiFetcher = new APIFetcher()
+  tokenFetcher = new TokenFetcher()
+
+  async getData({id, kind, overrideCache, test}) {
+    id = id.toLowerCase()
+    if ((id in this.cache[kind]) && (this.cache[kind][id].data) && !overrideCache) {
+      return this.cache[kind][id].data
+    }
+
+    var data
+    if (id in this.pendingEndpointCalls[kind]) {
+      data = await this.pendingEndpointCalls[kind][id]
+    } else if (kind == "user") {
+      var call = this.apiFetcher.getUser({id})
+      this.pendingEndpointCalls[kind][id] = call
+      data = await call
+    } else if (kind == "item") {
+      var call = this.getItem({id})
+      this.pendingEndpointCalls[kind][id] = call
+      data = await call
+    } else if (kind == "web3Stuff") {
+      if (id == "useraddress") {
+        var call = this.getUserAddress()
+        this.pendingEndpointCalls[kind][id] = call
+        data = await call
+      }
+      else {throw "web3stuff id not found"}
+    } else {throw "kind not found"}
+    delete this.pendingEndpointCalls[kind][id]
+
+    this.cache[kind][id] = this.cache[kind][id] || {data: null, subscribers: {}}
+    this.cache[kind][id].data = data
+    Object.values(this.cache[kind][id].subscribers).forEach(callback => callback(data))
+    return data
+  }
+
+  async getSorting({type, id, page}) {
+    this.sortingsCache = this.sortingsCache || {byOwner: {}}
+    if (type == "byOwner") {
+      if (this.sortingsCache["byOwner"][id]) {
+        return this.sortingsCache["byOwner"][id]
+      }
+      var res = await this.tokenFetcher.getByOwner({id, web3: this.cache["web3Stuff"]["web3"].data})
+      this.sortingsCache["byOwner"][id] = res
+      return res
+    }
+  }
+
+  async getItem({id}) {
+    // return (await this.apiFetcher.generateItemData({id})) //for testing
+
+    var apiCall = this.apiFetcher.getItem({id})
+    var tokenCall = this.tokenFetcher.finishProcesing({token: {id}, web3: this.cache["web3Stuff"]["web3"].data})
+    var [apiItem, tokenItem] = await Promise.all([apiCall, tokenCall])
+
+    var {name, description, blocks} = apiItem.metadata
+    var metadata = {name, description, blocks} //need to change order for hash
+    var calculatedMetadataHash = keccakUtf8(JSON.stringify(metadata))
+    if (calculatedMetadataHash != tokenItem.metadataHash) {throw "metadata hash incorrect"}
+    var calculatedBlocksHash = keccakUtf8(JSON.stringify(blocks))
+    if (calculatedBlocksHash != tokenItem.id) {throw "blocks hash doesn't match token id"}
+
+    var processedBlocks = this.processRawBlocks(blocks)
+    var item = {
+      name,
+      description,
+      blocks: processedBlocks,
+      ...tokenItem,
+    }
+    // blockchain: date created, ownerId, authorId, metadataHash (to verify against hash of metadata)
+    // metadata  : blocks (to verify against tokenId), name, description
+
+    return item
+
+  }
+
+  processRawBlocks(blocksObject) {
+    var rawBlocks = ndarray(new Uint8Array(blocksObject), [16,16,16,4])
+    var blocks = ndarray(new Uint8Array(17*17*17*4), [17, 17, 17, 4])
+    var nonFloorSlice = blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 4)
+    np.assign(nonFloorSlice, rawBlocks)
+    return blocks
+  }
+
+  addDataSubscription({id, kind, callback}) {
+    id = id.toLowerCase()
+    this.subscriptionCounter += 1
+    const subscriptionId = this.subscriptionCounter
+    this.cache[kind][id] = this.cache[kind][id] || {data: undefined, subscribers: {}}
+    this.cache[kind][id].subscribers[subscriptionId] = callback
+    return subscriptionId
+  }
+
+  removeDataSubscription({id, kind, subscriptionId}) {
+    id = id.toLowerCase()
+    delete this.cache[kind][id].subscribers[subscriptionId]
+  }
+
+  setWeb3(web3) {
+    this.cache["web3Stuff"]["web3"] = this.cache["web3Stuff"]["web3"] || {data: undefined, subscribers: {}}
+    this.cache["web3Stuff"]["web3"].data = web3
+    Object.values(this.cache["web3Stuff"]["web3"].subscribers).forEach(callback => callback())
+  }
+
+  hasWeb3() {
+    return (this.cache["web3Stuff"]["web3"] && this.cache["web3Stuff"]["web3"].data)
+  }
+
+  // passthrough these for now
+  async setUserData(messageData) {
+    await this.apiFetcher.setUserData(messageData)
+  }
+  async setFeedback(feedbackData) {
+    await this.apiFetcher.setFeedback(feedbackData)
+  }
+  async setItemData(itemData) {
+    await this.apiFetcher.setItemData(itemData)
+  }
+  async getItemDetails({id}) {
+    await this.apiFetcher.getItemDetails({id})
+  }
+  mintToken({tokenId, metadataHash, userAddress}) {
+    return this.tokenFetcher.mintToken({tokenId, metadataHash, userAddress, web3: this.cache["web3Stuff"]["web3"].data})
+  }
+  getUserAddress() {
+    return this.tokenFetcher.getUserAddress({web3: this.cache["web3Stuff"]["web3"].data})
+  }
+}
+
+var useGetFromDatastore = ({id, kind, dontUse}) => {
+  var [shouldUpdateCounter, setShouldUpdateCounter] = React.useState(0)
+  var [response, setResponse] = React.useState()
+
+  var propsGood = id && true
+  // if call datastore function that requires web3 and datastore doesn't have it => error
+  var web3Good = (kind == "item" || kind == "web3Stuff") ? datastore.hasWeb3() : true
+  var shouldRun = propsGood && web3Good && !dontUse
+
+  var isCancelled = false
+  shouldRun && datastore.getData({id, kind, test:true}).then(res => {
+    !isCancelled && setResponse(res)
+  })
+
+  React.useEffect(() => {
+    if (shouldRun) {
+      var cancel = () => {isCancelled = true}
+      return cancel
+    }
+  })
+
+  // console.log("useGetFromDatastore hook firing")
+
+  // update on item changes
+  React.useEffect(() => {
+    if (propsGood && !dontUse) {
+      var cbID = Math.random()
+      var callback = () => {
+        setShouldUpdateCounter(shouldUpdateCounter + 1)
+      }
+      var subscriptionId = datastore.addDataSubscription({kind, id, callback})
+      var cancel = () => datastore.removeDataSubscription({kind, id, subscriptionId})
+      return cancel
+    }
+  })
+
+  // update on web3 changes
+  React.useEffect(() => {
+    if (!dontUse) {
+      var callback = () => {
+        setShouldUpdateCounter(shouldUpdateCounter + 1)
+      }
+      var subscriptionId = datastore.addDataSubscription({kind:"web3Stuff",id:"web3", callback})
+      var cancel = () => datastore.removeDataSubscription({kind:"web3Stuff",id:"web3", subscriptionId})
+      return cancel
+    }
+  })
+
+  return dontUse ? null : (response || datastore.nullType[kind])
+}
+
 
 class App extends React.Component {
 
   constructor(props) {
     super(props)
-    this.state = {
-      web3: null, //if non null, user is "signed in"
-      userAddress: null,
-    }
   }
 
   componentDidMount() {
@@ -408,9 +553,7 @@ class App extends React.Component {
       if (networkType != "main") {
         toaster.warning(`Client on ${networkType}, please switch to Mainnet.`)
       } else {
-        var accounts = await web3.eth.getAccounts()
-        var userAddress = accounts[0]
-        this.setState({web3, userAddress})
+        datastore.setWeb3(web3)
       }
     } catch (error) {
       console.log(error)
@@ -419,24 +562,23 @@ class App extends React.Component {
   }
 
   render() {
-    var {userAddress, web3} = this.state
-    var web3Data = {userAddress, web3, signIn: () => this.signIn()}
+
     return (
       <div style={{display: "grid", gridTemplateRows: "auto 1fr", height: "100%", minWidth: "1000px"}}>
         <ToasterContainer autoHideDuration={3000} overrides={{Root: {style: () => ({zIndex: 2})}}}/>
         <div>
-          <Header signIn={() => this.signIn()} address={this.state.userAddress} />
+          <Header signIn={() => this.signIn()}  />
         </div>
         <Router style={{height: "100%"}}>
           <SidebarAndListings path="/home"/>
-          <UserProfile web3Data={web3Data} path="/user/:id"/>
+          <UserProfile path="/user/:id"/>
         </Router>
         <div style={{flex: "auto", position: "relative"}}>
           <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0"}}>
             <Router primary={false}>
-              <LandingPage web3Data={web3Data} path="/"/>
+              <LandingPage path="/"/>
               <Listing path="/item/:id"/>
-              <VoxelEditor web3Data={web3Data} path="/newItem"/>
+              <VoxelEditor path="/newItem"/>
             </Router>
           </div>
         </div>
@@ -488,26 +630,31 @@ var UserProfile = props => {
   var canvasRef = React.useRef()
   const id = props.id
   var [name, setName] = React.useState()
-  var resetName = async () => {setName((await datastore.getData({id, kind:"user"})).name)}
 
+  var user = useGetFromDatastore({kind: "user", id})
   React.useEffect(() => {
-    resetName()
+    setName(user.name)
+  }, [user.name])
+  var resetName = () => setName(user.name)
 
-    // setting canvas picture
-    var {width, height} = canvasRef.current.getBoundingClientRect()
-    canvasRef.current.width = width * window.devicePixelRatio
-    canvasRef.current.height = height * window.devicePixelRatio
-    datastore.generateApparatus(canvasRef.current, props.id)
-  }, [props.id])
-
-
+  var setProfilePicture = async () => {
+    var canvas = canvasRef.current
+    var {width, height} = canvas.getBoundingClientRect()
+    canvas.width = width * window.devicePixelRatio
+    canvas.height = height * window.devicePixelRatio
+    user.avatarFunction(canvas)
+  }
+  React.useEffect(() => {
+    user.avatarFunction && setProfilePicture()
+  }, [user.avatarFunction])
 
   const profilePicSize = 200
 
   // Below is for editing name and email
+  var userAddress = useGetFromDatastore({kind: "web3Stuff", id: "useraddress"})
   const [isEditing, setIsEditing] = React.useState(false)
   var editButton = null
-  if (props.web3Data.userAddress == id) {
+  if (userAddress == id) {
     editButton = <Caption2 onClick={() => setIsEditing(true)}style={{marginLeft: "4px", textDecoration:"underline", lineHeight: "24px", cursor:"pointer"}}>edit</Caption2>
   }
 
@@ -537,8 +684,9 @@ var UserProfile = props => {
     setIsEditing(false)
     setNotification("")
   }
+  var web3 = useGetFromDatastore({kind: "web3Stuff", id: "web3"})
   var submit = async () => {
-    var web3 = props.web3Data.web3
+    if (!web3) {console.log("no web3!"); return}
     var validUntil = Math.floor(Date.now()/1000) + 120
     var signature
     var message = `I'm updating my preferences on Polytope with the username ${name} and the email ${email}. This request is valid until ${validUntil}`
@@ -556,7 +704,7 @@ var UserProfile = props => {
       setWaiting("Uploading to server")
       await datastore.setUserData({message, id, signature})
       setWaiting("Setting name")
-      setName((await datastore.getData({id, kind: "user", overrideCache: true})).name)
+      await datastore.getData({id, kind: "user", overrideCache: true}) //will call subscription
       setIsEditing(false)
       setWaiting("")
     } catch (e) {
@@ -588,7 +736,7 @@ var UserProfile = props => {
   </>
 
   // Getting their items
-  props.web3Data.web3 && tokenFetcher.getByOwner({id: props.id, web3: props.web3Data.web3})
+  // props.web3Data.web3 && tokenFetcher.getByOwner({id: props.id, web3: props.web3Data.web3})
 
   // setting window title
   if (name) {document.title = `Polytope | ${name}`}
@@ -605,54 +753,58 @@ var UserProfile = props => {
     </div>
     <div style={{position: "relative"}}>
       <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0", overflow: "auto"}}>
-        <Listings />
+        <Listings sorting={{type: "byOwner", id: props.id}} />
       </div>
     </div>
   </div>
 
 }
 
-class Listings extends React.Component {
+var Listings = props => {
 
-  cardGap = THEME.sizing.scale1000
-  sidesGap = THEME.sizing.scale1400
+  const cardGap = THEME.sizing.scale1000
+  const sidesGap = THEME.sizing.scale1400
 
-  constructor(props) {
-    super(props)
+  var containerRef = React.createRef()
+  var [cardIds, setCardIds] = React.useState([])
+  var [voxelRenderer, setVoxelRenderer] = React.useState()
 
-    this.voxelRenderer = new VoxelRenderer({pixelRatio:window.devicePixelRatio})
-    this.containerRef = React.createRef()
-  }
+  React.useEffect(() => {
+    var renderer = new VoxelRenderer({pixelRatio:window.devicePixelRatio})
+    setVoxelRenderer(renderer)
+    var cleanup = () => renderer.destroy()
+    return cleanup
+  }, [])
 
-  componentDidMount() {
-    // this.containerRef.current.scrollTop = 10000
-  }
+  React.useEffect(() => {
+    var updateCardIds = async () => {
+      var ids = await datastore.getSorting(props.sorting)
+      setCardIds(ids)
+    }
+    datastore.hasWeb3() && props.sorting && updateCardIds()
+  }, [props.sorting])
 
-  componentWillUnmount() {
-    this.voxelRenderer.destroy()
-  }
+  var cards = cardIds.map(id => {
+    // var itemId = Web3Utils.sha3(idx.toString())
+    var card = <ListingCard key={id} id={id} voxelRenderer={voxelRenderer} imageSize={220} />
+    return card
+  })
 
-  render() {
-    var cards = [...Array(30).keys()].map(idx => {
-      var itemId = Web3Utils.sha3(idx.toString())
-      var card = <ListingCard key={idx} id={itemId} voxelRenderer={this.voxelRenderer} imageSize={220} />
-      return card
-    })
-
-    return (
-      <div style={{display: "grid", gridTemplateColumns: "repeat(auto-fill, 220px)", justifyContent: "center", rowGap: this.cardGap, columnGap: this.cardGap, maxWidth: "1100px", margin: this.sidesGap}}>
-        {cards}
-      </div>
-    )
-  }
+  return (
+    <div style={{display: "grid", gridTemplateColumns: "repeat(auto-fill, 220px)", justifyContent: "center", rowGap: cardGap, columnGap: cardGap, maxWidth: "1100px", margin: sidesGap}}>
+      {cards}
+    </div>
+  )
 }
 
 var ListingCard = props => {
   const canvasRef = React.useRef()
-  const imageSize =
+  var item = useGetFromDatastore({id: props.id, kind: "item", dontUse: props.listingData})
+  item = props.listingData || item
 
   React.useEffect(() => {
     if (!props.voxelRenderer) {return}
+    if (!item.blocks) {return}
     var blockDisplayListeners = []
     var addEventListener = (obj, eventName, func) => {
       blockDisplayListeners.push([obj, eventName, func])
@@ -662,7 +814,7 @@ var ListingCard = props => {
     var animationFrameRequestId
 
     var setupBlockdisplay = async () => {
-      var {blocks} = props.listingData || (await datastore.getData({id: props.id, kind:"item"}))
+      var {blocks} = item
 
       var gameState = new GameState({blocks})
       const lookAtPos = new Vector3(gameState.worldSize.x/2, 10, gameState.worldSize.y/2)
@@ -697,10 +849,7 @@ var ListingCard = props => {
     }
     setupBlockdisplay()
     return cancelBlockDisplay
-  }, [props.id, props.voxelRenderer])
-
-  var item = useGetFromDatastore({id: props.id, kind: "item", dontUse: !props.id}) //can't not run a hook
-  item = item || props.listingData
+  }, [props.id, props.voxelRenderer, item])
 
   const {price, name, description, notForSale, authorId, ownerId} = item
 
@@ -709,7 +858,7 @@ var ListingCard = props => {
     <div style={{width: props.imageSize+"px", height: "1px", backgroundColor: "#efefef"}}></div>
     <div style={{display: "flex", flexDirection: "column", justifyContent: "center", padding: "10px", width: props.imageSize+"px", boxSizing: "border-box", backgroundColor: THEME.colors.primaryB}}>
       <LabelLarge style={{textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden"}}>
-        {name}
+        {name || " "}
       </LabelLarge>
       <ParagraphSmall color={["colorSecondary"]} style={{whiteSpace: "nowrap", overflow:"hidden", textOverflow: "ellipsis", margin: "5px 0px 0px 0px"}}>
         {description || " "}
@@ -740,10 +889,7 @@ var ListingCard = props => {
 }
 
 var AvatarAndName = props => {
-
-  var [newDataCtr, setNewDataCtr] = React.useState(0)
   var {labelColor, labelStyle, id} = props
-
   var user = useGetFromDatastore({id, kind:"user"})
 
   return (
@@ -764,14 +910,17 @@ var UserAvatar = props => {
   const canvasRef = React.useRef()
   var [hover, setHover] = React.useState(false)
 
-  React.useEffect(() => {
-    var {width, height} = canvasRef.current.getBoundingClientRect()
-    canvasRef.current.width = width * window.devicePixelRatio
-    canvasRef.current.height = height * window.devicePixelRatio
-    datastore.generateApparatus(canvasRef.current, props.id)
-  }, [props.id])
+  const {avatarURL, avatarFunction} = useGetFromDatastore({id: props.id, kind: "user"})
 
-  const {avatarURL} = useGetFromDatastore({id: props.id, kind: "user"})
+  React.useEffect(() => {
+    if (avatarFunction) {
+      var canvas = canvasRef.current
+      var {width, height} = canvas.getBoundingClientRect()
+      canvas.width = width * window.devicePixelRatio
+      canvas.height = height * window.devicePixelRatio
+      avatarFunction(canvas)
+    }
+  }, [avatarFunction])
 
   var filter = hover ? "brightness(95%)" : ""
 
@@ -800,35 +949,6 @@ var usePromise = (datastoreCall, shouldRun) => {
   return response
 }
 
-var useGetFromDatastore = ({id, kind, dontUse}) => {
-  var [shouldUpdateCounter, setShouldUpdateCounter] = React.useState(0)
-  var [response, setResponse] = React.useState(datastore.nullType[kind])
-
-  var isCancelled = false
-  var shouldRun = id && true && !dontUse
-
-  shouldRun && datastore.getData({id, kind}).then(res => {
-    !isCancelled && setResponse(res)
-  })
-
-  React.useEffect(() => {
-    if (shouldRun) {
-      var cancel = () => {isCancelled = true}
-      return cancel
-    }
-  })
-
-  React.useEffect(() => {
-    if (shouldRun) {
-      var callback = () => setShouldUpdateCounter(shouldUpdateCounter + 1)
-      var subscriptionId = datastore.addSubscription({kind, id, callback})
-      var cancel = () => datastore.removeSubscription({kind, id, subscriptionId})
-      return cancel
-    }
-  })
-
-  return dontUse ? null : (response || datastore.nullType[kind])
-}
 
 var Listing = props => {
   const viewAreaSize = 500
@@ -839,14 +959,17 @@ var Listing = props => {
     datastore.getItemDetails({id: props.id})
   }, [props.id])
 
+  var item = useGetFromDatastore({id: props.id, kind: "item"})
+
   // Game setup and destroy
   React.useEffect(() => {
+    if (!item.blocks) {return}
     var animationFrameRequestID
     var renderID
     var voxelRenderer
     var setupGame = async () => {
       voxelRenderer = new VoxelRenderer({pixelRatio:1, canvas:canvasRef.current})
-      var {blocks} = await datastore.getData({id: props.id, kind: "item"})
+      var {blocks} = item
       var gameState = new GameState({blocks})
       var flyControls = new FlyControls({gameState, domElement: canvasRef.current, interactionDisabled: true})
 
@@ -871,9 +994,8 @@ var Listing = props => {
     }
     setupGame()
     return cleanupGame
-  }, [props.id])
+  }, [props.id, item])
 
-  var item = useGetFromDatastore({id: props.id, kind: "item"})
   var owner = useGetFromDatastore({id: item && item.ownerId, kind: "user"})
   var author = useGetFromDatastore({id: item && item.authorId, kind: "user"})
 
@@ -920,12 +1042,13 @@ var Listing = props => {
 }
 
 var LandingPage = props => {
+  var [voxelRenderer, setVoxelRenderer] = React.useState()
 
-  var voxelRenderer = new VoxelRenderer({pixelRatio:window.devicePixelRatio})
   React.useEffect(() => {
-    return () => voxelRenderer.destroy()
-  })
-
+    var renderer = new VoxelRenderer({pixelRatio:window.devicePixelRatio})
+    setVoxelRenderer(renderer)
+    return () => renderer.destroy()
+  }, [])
 
   var cards = [...Array(3).keys()].map(idx => {
     var itemId = Web3Utils.sha3(idx.toString())
@@ -987,7 +1110,7 @@ var LandingPage = props => {
           Created by cameronfr.
         </HeadingXSmall>
         <div style={{margin: "10px"}}>
-          <FeedbackButton web3Data={props.web3Data} />
+          <FeedbackButton />
         </div>
         <HeadingXSmall style={{color: "white", margin: "10px"}}>
           {"Built with"}{" "}
@@ -1050,12 +1173,15 @@ var LandingPage = props => {
   </>
 }
 
+// messy
 var FeedbackButton = props => {
+
   var inputRef = React.useRef(null);
   var [isExpanded, setIsExpanded] = React.useState(false)
   var [isHidden, setIsHidden] = React.useState(true)
   var [feedbackText, setFeedbackText] = React.useState("")
   var [feedbackSuccess, setFeedbackSuccess] = React.useState(null)
+  var [rollinTimerId, setRollinTimerId] = React.useState(null)
 
   var rollout = () => {setIsExpanded(true), setIsHidden(false)}
   var rollin = () => {
@@ -1065,6 +1191,7 @@ var FeedbackButton = props => {
     setFeedbackSuccess(null)
   }
 
+  var inputBackgroundColor = (feedbackSuccess == null) ? "rgb(238, 238, 238)" : (feedbackSuccess ? "rgb(158, 226, 184)" : "rgb(251, 220, 230)")
   var feedbackInput = <>
     <div style={{transition: "width " + 0.2 + "s ease-in-out", width: isExpanded ? "350px" : "0px"}}>
       <div style={{display: isHidden ? "none" : "unset"}}>
@@ -1073,9 +1200,10 @@ var FeedbackButton = props => {
           onChange={e => {setFeedbackText(e.target.value); setFeedbackSuccess(null)}}
           value={feedbackText}
           error={feedbackSuccess != null && !feedbackSuccess}
-          positive={feedbackSuccess != null && feedbackSuccess}
+          positive={feedbackSuccess}
+          disabled={feedbackSuccess}
           inputRef={inputRef} placeholder={"ideas, problems, etc"}
-          overrides={{InputContainer: {style: {height: "36px", border: "none"}}}}
+          overrides={{InputContainer: {style: {borderStyle: "unset", height: "36px", backgroundColor: inputBackgroundColor}}}}
         />
       </div>
     </div>
@@ -1087,29 +1215,34 @@ var FeedbackButton = props => {
     onClick={e => {e.preventDefault(); rollout()}}>
     Feedback and Contact
   </Button>
+
+  var userAddress = useGetFromDatastore({kind: "web3Stuff", id: "useraddress"})
   var submitFeedback = async () => {
     if (feedbackSuccess || !feedbackText) {
+      clearTimeout(rollinTimerId)
       rollin()
       return
     }
     var feedbackData = {
-      id: props.web3Data && props.web3Data.userAddress,
+      id: userAddress || null,
       feedback: feedbackText,
     }
     datastore.setFeedback(feedbackData).then(res => {
       inputRef.current && inputRef.current.blur()
       setFeedbackSuccess(true)
-      setTimeout(rollin, 5000)
+      setRollinTimerId(setTimeout(rollin, 5000))
     }).catch(e => {
+      inputRef.current && inputRef.current.blur()
       setFeedbackSuccess(false)
       console.log(e)
     })
   }
+
   var submitFeedbackButton = <Button
     size={SIZE.compact} kind={KIND.secondary}
     style={{color: "black", backgroundColor: "white", width: "180px"}}
     type={"submit"}>
-    Done
+    {feedbackSuccess ? "Submitted" : "Done"}
   </Button>
   var feedbackArea = <>
     <form onSubmit={e => {e.preventDefault(); submitFeedback()}} style={{margin: "0"}}>
@@ -1140,8 +1273,9 @@ var Header = props => {
   }
 
   var profileArea
-  if (props.address) {
-    profileArea = <AvatarAndName id={props.address} labelColor={"colorPrimary"} labelStyle={{maxWidth: "150px", textOverflow: "ellipsis", overflow: "hidden"}}/>
+  var userAddress = useGetFromDatastore({kind: "web3Stuff", id: "useraddress"})
+  if (userAddress) {
+    profileArea = <AvatarAndName id={userAddress} labelColor={"colorPrimary"} labelStyle={{maxWidth: "150px", textOverflow: "ellipsis", overflow: "hidden"}}/>
   } else {
     profileArea = <>
       <Button onClick={props.signIn}>Sign In</Button>
@@ -1785,7 +1919,7 @@ class VoxelEditor extends React.Component {
         this.setState({atPublishDialog: false})
         this.controls.interactionEnabled = true
       }
-      sidebar = <PublishItemPanel web3Data={this.props.web3Data} onGoBack={onGoBack} blocks={this.getPublishableBlocks()}/>
+      sidebar = <PublishItemPanel onGoBack={onGoBack} blocks={this.getPublishableBlocks()}/>
     } else {
       var onContinue = () => {
         this.setState({atPublishDialog: true})
@@ -2144,15 +2278,15 @@ var PublishItemPanel = props => {
     return convertedAmount
   }
   var priceBN = ethStringToWei(price)
+  var web3 = useGetFromDatastore({kind: "web3Stuff", id: "web3"})
+  var userAddress = useGetFromDatastore({kind: "web3Stuff", id: "userAddress"})
   var mintItem = async () => {
     var stopWithError = (e, msg) => {
       setNotification(msg)
       setWaiting("")
       console.log(msg, e)
     }
-    !props.web3Data.web3 && (await props.web3Data.signIn())
-    var web3 = props.web3Data.web3
-    var userAddress = props.web3Data.userAddress
+    (!web3 || !userAddress) && stopWithError("", "Not logged in")
 
     var rawBlocks = Array.from(props.blocks.data)
     var blocksHash = keccakUtf8(JSON.stringify(rawBlocks))
@@ -2169,12 +2303,8 @@ var PublishItemPanel = props => {
     }
     try {
       setWaiting("Waiting for mint transaction approval")
-      var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
-      // tokenContract.handleRevert = true //doesn't work
-      tokenContract.methods.mint(userAddress, blocksHash, metadataHash).send({
-        from: userAddress,
-        gas: 400000
-      }).on("transactionHash", hash => {
+      var mintPromise = datastore.mintToken({tokenId: blocksHash, metadataHash, userAddress})
+      mintPromise.on("transactionHash", hash => {
         setWaiting("Waiting for transaction confirmation")
       }).on("receipt", receipt => {
         setWaiting("")
@@ -2743,7 +2873,6 @@ function keccakUtf8(string) {
 // Code that runs in module
 
 const datastore = new Datastore()
-const tokenFetcher = new TokenFetcher()
 const THEME = LightTheme
 const engine = new Styletron();
 
