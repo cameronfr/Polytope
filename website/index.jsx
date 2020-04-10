@@ -363,6 +363,8 @@ class Datastore {
         var call = this.getUserAddress()
         this.pendingEndpointCalls[kind][id] = call
         data = await call
+      } else if (id == "web3") {
+        return null //should be in cache
       }
       else {throw "web3stuff id not found"}
     } else {throw "kind not found"}
@@ -434,6 +436,43 @@ class Datastore {
   removeDataSubscription({id, kind, subscriptionId}) {
     id = id.toLowerCase()
     delete this.cache[kind][id].subscribers[subscriptionId]
+  }
+
+  async trySilentRequestWeb3() {
+    if (!window.ethereum) {return}
+    var web3 = {}
+    web3.eth = new Web3Eth(window.ethereum)
+    var accounts = await web3.eth.getAccounts()
+    if (accounts && accounts.length > 0) {
+      // if not null, probably won't have popup when .signIn()
+      var res = await this.requestWeb3()
+      return res
+    }
+    return false
+  }
+
+  async requestWeb3() {
+    if (!window.ethereum) {
+      toaster.warning(`A web3 client such as Metamask is required.`)
+      return
+    }
+    var web3 = {}
+    web3.eth = new Web3Eth(window.ethereum)
+    try {
+      await window.ethereum.enable()
+      var networkType = await web3.eth.net.getNetworkType()
+      if (networkType != "main") {
+        toaster.warning(`Client on ${networkType}, please switch to Mainnet.`)
+        return false
+      } else {
+        this.setWeb3(web3)
+        return true
+      }
+    } catch (error) {
+      console.log(error)
+      toaster.warning("Web3 permission was not granted.")
+      return false
+    }
   }
 
   setWeb3(web3) {
@@ -526,39 +565,9 @@ class App extends React.Component {
   }
 
   componentDidMount() {
-    this.tryAutoLogin()
-  }
-
-  async tryAutoLogin() {
-    if (!window.ethereum) {return}
-    var web3 = {}
-    web3.eth = new Web3Eth(window.ethereum)
-    var accounts = await web3.eth.getAccounts()
-    if (accounts && accounts.length > 0) {
-      // if not null, probably won't have popup when .signIn()
-      this.signIn()
-    }
-  }
-
-  async signIn() {
-    if (!window.ethereum) {
-      toaster.warning(`A web3 client such as Metamask is required.`)
-      return
-    }
-    var web3 = {}
-    web3.eth = new Web3Eth(window.ethereum)
-    try {
-      await window.ethereum.enable()
-      var networkType = await web3.eth.net.getNetworkType()
-      if (networkType != "main") {
-        toaster.warning(`Client on ${networkType}, please switch to Mainnet.`)
-      } else {
-        datastore.setWeb3(web3)
-      }
-    } catch (error) {
-      console.log(error)
-      toaster.warning("Web3 permission was not granted.")
-    }
+    datastore.trySilentRequestWeb3().then(success => {
+      !success && datastore.requestWeb3()
+    })
   }
 
   render() {
@@ -567,7 +576,7 @@ class App extends React.Component {
       <div style={{display: "grid", gridTemplateRows: "auto 1fr", height: "100%", minWidth: "1000px"}}>
         <ToasterContainer autoHideDuration={3000} overrides={{Root: {style: () => ({zIndex: 2})}}}/>
         <div>
-          <Header signIn={() => this.signIn()}  />
+          <Header  />
         </div>
         <Router style={{height: "100%"}}>
           <SidebarAndListings path="/home"/>
@@ -628,14 +637,13 @@ var SidebarAndListings = props => {
 
 var UserProfile = props => {
   var canvasRef = React.useRef()
-  const id = props.id
   var [name, setName] = React.useState()
+  const [email, setEmail] = React.useState("")
 
-  var user = useGetFromDatastore({kind: "user", id})
+  var user = useGetFromDatastore({kind: "user", id: props.id})
   React.useEffect(() => {
     setName(user.name)
   }, [user.name])
-  var resetName = () => setName(user.name)
 
   var setProfilePicture = async () => {
     var canvas = canvasRef.current
@@ -648,84 +656,73 @@ var UserProfile = props => {
     user.avatarFunction && setProfilePicture()
   }, [user.avatarFunction])
 
-  const profilePicSize = 200
-
-  // Below is for editing name and email
+  // Name with editor button
   var userAddress = useGetFromDatastore({kind: "web3Stuff", id: "useraddress"})
-  const [isEditing, setIsEditing] = React.useState(false)
-  var editButton = null
-  if (userAddress == id) {
-    editButton = <Caption2 onClick={() => setIsEditing(true)}style={{marginLeft: "4px", textDecoration:"underline", lineHeight: "24px", cursor:"pointer"}}>edit</Caption2>
+  var editButton
+  if (userAddress == props.id) {
+    editButton = <>
+      <Caption2 onClick={() => setIsEditing(true)}style={{marginLeft: "4px", textDecoration:"underline", lineHeight: "24px", cursor:"pointer"}}>edit</Caption2>
+    </>
   }
-
-  var displayHtml = <>
+  var nameDisplay = <>
     <div style={{display: "grid", gridTemplateColumns: "repeat(2, minmax(auto, min-content))", justifyContent: "center", alignItems: "end"}} >
       <HeadingSmall style={{margin: "0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"}}>
-        {name}
+        {user.name}
       </HeadingSmall>
       {editButton}
     </div>
   </>
 
-  var caption = (text, errorText, isError) => <>
-      <Caption1 color={isError ? ["negative400"] : undefined} style={{textAlign: "left"}}>
-        {isError ? errorText : text}
-      </Caption1>
-    </>
-
-  const [email, setEmail] = React.useState("")
+  // Editing Stuff
+  const [isEditing, setIsEditing] = React.useState(false)
   const [waiting, setWaiting] = React.useState("")
   const [notification, setNotification] = React.useState("")
+
   var emailRegex = (/^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/)
   var emailValid = emailRegex.test(email)
+  var allFieldsValid = (email ? emailValid : true) && name
 
-  var reset = async () => {
-    resetName()
-    setIsEditing(false)
-    setNotification("")
-  }
   var web3 = useGetFromDatastore({kind: "web3Stuff", id: "web3"})
   var submit = async () => {
-    if (!web3) {console.log("no web3!"); return}
     var validUntil = Math.floor(Date.now()/1000) + 120
     var signature
     var message = `I'm updating my preferences on Polytope with the username ${name} and the email ${email}. This request is valid until ${validUntil}`
-    setNotification("")
     try {
+      if (!web3) {throw "No web3!"}
       setWaiting("Waiting for signature")
-      signature = await web3.eth.personal.sign(Web3Utils.fromUtf8(message), id);
-    } catch(e) {
-      console.log(e)
-      setNotification("Signature was not given")
-      setWaiting("")
-      return
-    }
-    try {
+      var signature = await runWithErrMsgAsync(web3.eth.personal.sign(Web3Utils.fromUtf8(message), props.id), "Signature was not given");
       setWaiting("Uploading to server")
-      await datastore.setUserData({message, id, signature})
+      await runWithErrMsgAsync(datastore.setUserData({message, id:props.id, signature}), "Upload to server failed")
       setWaiting("Setting name")
-      await datastore.getData({id, kind: "user", overrideCache: true}) //will call subscription
+      await runWithErrMsgAsync(datastore.getData({id: props.id, kind: "user", overrideCache: true}), "Error fetching from server")
+      setNotification("")
       setIsEditing(false)
-      setWaiting("")
     } catch (e) {
-      console.log(e)
-      setNotification("Upload to server failed")
       setWaiting("")
-      return
+      setNotification(e)
     }
   }
-  var notificationHtml = notification ? <Notification kind={NotificationKind.warning} overrides={{Body: {style: {width: 'auto'}}}}>{() => notification}</Notification> : null
+  var caption = (text, errorText, isError) => <>
+    <Caption1 color={isError ? ["negative400"] : undefined} style={{textAlign: "left"}}>
+      {isError ? errorText : text}
+    </Caption1>
+  </>
+  var notificationHtml = <>
+   <Notification kind={NotificationKind.warning} overrides={{Body: {style: {width: 'auto'}}}}>
+     {() => notification}
+   </Notification>
+  </>
   var editHtml = <>
     <div>
-      {notificationHtml}
+      {notification && notificationHtml}
       {caption("Edit your username (required)", "Can't be empty", !name)}
       <Input size={SIZE.compact} placeholder={"username"} value={name} onChange={e => setName(e.target.value)} error={!name}/>
       {caption("Edit your email (won't be shown)", "Invalid email", email && !emailValid)}
       <Input size={SIZE.compact} placeholder={"e.g. email@my.com"} value={email} onChange={e => setEmail(e.target.value)} error={email && !emailValid}/>
     </div>
     <div style={{display: "grid", gridTemplateColumns: "auto auto", columnGap: "15px"}}>
-      <Button kind={KIND.secondary} size={SIZE.compact} onClick={reset}>Cancel</Button>
-      <Button kind={KIND.primary} size={SIZE.compact} onClick={submit}>Submit</Button>
+      <Button kind={KIND.secondary} size={SIZE.compact} onClick={() => setIsEditing(false)}>Cancel</Button>
+      <Button kind={KIND.primary} size={SIZE.compact} onClick={submit} disabled={!allFieldsValid}>Submit</Button>
     </div>
   </>
   var waitingHtml = <>
@@ -734,30 +731,30 @@ var UserProfile = props => {
     </div>
     <LabelSmall>{waiting}</LabelSmall>
   </>
-
-  // Getting their items
-  // props.web3Data.web3 && tokenFetcher.getByOwner({id: props.id, web3: props.web3Data.web3})
+  var nameArea = isEditing ? (waiting ? waitingHtml : editHtml) : nameDisplay
 
   // setting window title
   if (name) {document.title = `Polytope | ${name}`}
+  const profilePicSize = 200
 
-  return <div style={{display: "grid", gridTemplateColumns: "auto 1fr", height: "100%"}}>
-    <div style={{width: "200px", marginLeft: THEME.sizing.scale1400, marginTop: THEME.sizing.scale1400}}>
-      <div style={{display: "grid", gridTemplateColumns: "auto", textAlign:"center", rowGap: "15px"}}>
-        <canvas ref={canvasRef} style={{height: profilePicSize+"px", width: profilePicSize+"px", borderRadius: (profilePicSize/2)+"px", boxShadow: "0px 0px 5px #ccc", backgroundColor: "#eee"}}/>
-        {isEditing ? (waiting ? waitingHtml : editHtml) : displayHtml}
-        <LabelSmall style={{overflow: "auto"}} color={["contentSecondary"]}>
-          {id}
-        </LabelSmall>
+  return <>
+    <div style={{display: "grid", gridTemplateColumns: "auto 1fr", height: "100%"}}>
+      <div style={{width: "200px", marginLeft: THEME.sizing.scale1400, marginTop: THEME.sizing.scale1400}}>
+        <div style={{display: "grid", gridTemplateColumns: "auto", textAlign:"center", rowGap: "15px"}}>
+          <canvas ref={canvasRef} style={{height: profilePicSize+"px", width: profilePicSize+"px", borderRadius: (profilePicSize/2)+"px", boxShadow: "0px 0px 5px #ccc", backgroundColor: "#eee"}}/>
+          {nameArea}
+          <LabelSmall style={{overflow: "auto"}} color={["contentSecondary"]}>
+            {props.id}
+          </LabelSmall>
+        </div>
+      </div>
+      <div style={{position: "relative"}}>
+        <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0", overflow: "auto"}}>
+          <Listings sorting={{type: "byOwner", id: props.id}} />
+        </div>
       </div>
     </div>
-    <div style={{position: "relative"}}>
-      <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0", overflow: "auto"}}>
-        <Listings sorting={{type: "byOwner", id: props.id}} />
-      </div>
-    </div>
-  </div>
-
+  </>
 }
 
 var Listings = props => {
@@ -776,13 +773,14 @@ var Listings = props => {
     return cleanup
   }, [])
 
+  var isWaitingWeb3 = !useGetFromDatastore({kind: "web3Stuff", id: "web3"})
   React.useEffect(() => {
     var updateCardIds = async () => {
       var ids = await datastore.getSorting(props.sorting)
       setCardIds(ids)
     }
-    datastore.hasWeb3() && props.sorting && updateCardIds()
-  }, [props.sorting])
+    !isWaitingWeb3 && props.sorting && updateCardIds()
+  }, [props.sorting, isWaitingWeb3])
 
   var cards = cardIds.map(id => {
     // var itemId = Web3Utils.sha3(idx.toString())
@@ -790,11 +788,25 @@ var Listings = props => {
     return card
   })
 
-  return (
+  var waitingWeb3Screen = <>
+    <div style={{display: "grid", alignItems: "center", justifyItems: "center", with: "100%", height: "100%"}}>
+      <div style={{display: "grid", rowGap: THEME.sizing.scale600, justifyItems: "center"}}>
+        <Spinner />
+        <LabelLarge>Waiting for web3</LabelLarge>
+      </div>
+    </div>
+  </>
+
+
+  var listingsScreen = <>
     <div style={{display: "grid", gridTemplateColumns: "repeat(auto-fill, 220px)", justifyContent: "center", rowGap: cardGap, columnGap: cardGap, maxWidth: "1100px", margin: sidesGap}}>
       {cards}
     </div>
-  )
+  </>
+
+  return <>
+    {isWaitingWeb3 ? waitingWeb3Screen : listingsScreen}
+  </>
 }
 
 var ListingCard = props => {
@@ -1017,7 +1029,7 @@ var Listing = props => {
         </div>
         <div style={{/*width: viewAreaSize+"px",*/flexBasis: "min-content", flexGrow: "1", maxWidth: viewAreaSize + "px", display: "grid", height: "min-content", margin: blockMargins+"px"}}>
           <DisplaySmall>
-            {item.name}
+            {item.name || " "}
           </DisplaySmall>
           <LabelLarge style={{overflow: "auto", paddingLeft: "2px", marginTop: "25px", minWidth: "0"}} color={["contentSecondary"]}>
             {props.id}
@@ -1050,12 +1062,29 @@ var LandingPage = props => {
     return () => renderer.destroy()
   }, [])
 
+  // card area
+  const backgroundColor = "#eee"
   var cards = [...Array(3).keys()].map(idx => {
     var itemId = Web3Utils.sha3(idx.toString())
     var card = <ListingCard key={idx} id={itemId} voxelRenderer={voxelRenderer} imageSize={220} />
     var container = <div style={{display: "flex", justifyContent: "center"}}>{card}</div>
     return card
   })
+  var web3WaitingScreen = <>
+    <div style={{display: "grid", alignItems: "center", justifyItems: "center", with: "100%", backgroundColor}}>
+      <div style={{display: "grid", rowGap: THEME.sizing.scale600, justifyItems: "center"}}>
+        <Spinner />
+        <LabelLarge>Waiting for web3</LabelLarge>
+      </div>
+    </div>
+  </>
+  var listingsScreen = <>
+    <div style={{backgroundColor: backgroundColor, paddingBottom: THEME.sizing.scale1400, width: "100%", display: "flex", alignItems: "center", justifyContent: "space-around"}}>
+      {cards}
+    </div>
+  </>
+  var isWaitingWeb3 = !useGetFromDatastore({kind: "web3Stuff", id: "web3"})
+  var cardArea = isWaitingWeb3 ? web3WaitingScreen : listingsScreen
 
   // List
   const listItemStyle = {lineHeight: "60px", margin: "0"}
@@ -1144,7 +1173,6 @@ var LandingPage = props => {
   </>
 
   const clipPath = "polygon(0 0, 100% 0, 100% 0%, 0% 100%)"
-  const backgroundColor = "#eee"
 
   document.title = `Polytope`
   return <>
@@ -1153,9 +1181,7 @@ var LandingPage = props => {
         Create, explore, and trade the next generation of digital items.
       </DisplaySmall>
     </div>
-    <div style={{backgroundColor: backgroundColor, paddingBottom: THEME.sizing.scale1400, width: "100%", display: "flex", alignItems: "center", justifyContent: "space-around"}}>
-      {cards}
-    </div>
+    {cardArea}
     <div style={{clipPath, WebkitClipPath: clipPath, height: "100px", backgroundColor: backgroundColor}}>
     </div>
     <div style={{display: "grid", padding: THEME.sizing.scale1400, rowGap: THEME.sizing.scale1000}}>
@@ -1278,7 +1304,7 @@ var Header = props => {
     profileArea = <AvatarAndName id={userAddress} labelColor={"colorPrimary"} labelStyle={{maxWidth: "150px", textOverflow: "ellipsis", overflow: "hidden"}}/>
   } else {
     profileArea = <>
-      <Button onClick={props.signIn}>Sign In</Button>
+      <Button onClick={datastore.requestWeb3}>Sign In</Button>
     </>
   }
 
@@ -2281,49 +2307,42 @@ var PublishItemPanel = props => {
   var web3 = useGetFromDatastore({kind: "web3Stuff", id: "web3"})
   var userAddress = useGetFromDatastore({kind: "web3Stuff", id: "userAddress"})
   var mintItem = async () => {
-    var stopWithError = (e, msg) => {
-      setNotification(msg)
-      setWaiting("")
-      console.log(msg, e)
-    }
-    (!web3 || !userAddress) && stopWithError("", "Not logged in")
-
-    var rawBlocks = Array.from(props.blocks.data)
-    var blocksHash = keccakUtf8(JSON.stringify(rawBlocks))
-    var metadata = {name, description, blocks: rawBlocks}
-    var metadataHash = keccakUtf8(JSON.stringify(metadata))
-
-
     try {
+      if (!web3) {await datastore.requestWeb3(); throw "Web3 loaded, please mint again"}
+      if (!web3 || !userAddress) {throw "Not logged into web3"}
+
+      var rawBlocks = Array.from(props.blocks.data)
+      var blocksHash = keccakUtf8(JSON.stringify(rawBlocks))
+      var metadata = {name, description, blocks: rawBlocks}
+      var metadataHash = keccakUtf8(JSON.stringify(metadata))
+
       setWaiting("Uploading metadata to server")
-      await datastore.setItemData({metadata, metadataHash, id: blocksHash})
-    } catch(e) {
-      stopWithError(e, "Error uploading metadata")
-      return
-    }
-    try {
+      await runWithErrMsgAsync(datastore.setItemData({metadata, metadataHash, id: blocksHash}), "Error uploading metadata")
+
       setWaiting("Waiting for mint transaction approval")
       var mintPromise = datastore.mintToken({tokenId: blocksHash, metadataHash, userAddress})
       mintPromise.on("transactionHash", hash => {
         setWaiting("Waiting for transaction confirmation")
       }).on("receipt", receipt => {
-        setWaiting("")
         setSuccess({blocksHash, transactionHash: receipt.transactionHash})
       }).on("error", (error, receipt) => {
         // since can't see revert message, have to hope these are only errors
-        if (error.status != undefined) {
+        var error
+        if (receipt && receipt.status != undefined) {
           var tokenLink = <>
             <RouterLink style={{textDecoration: "underline", color: "unset"}} to={`/item/${blocksHash}`}>here</RouterLink>
           </>
-          stopWithError(error, <>Token already exists {tokenLink}!</>)
-        } else {
-          stopWithError(error, "Not enough gas")
+          error = <>Token already exists {tokenLink}!</>
+        } else if (receipt) {
+          error = "Not enough Gas"
         }
-        return
+        error = "Error starting contract call" //prob rejected
+        setNotification(error)
+        setWaiting("")
       })
     } catch(e) {
-      stopWithError(e, "Error starting contract call")
-      return
+      setNotification(e)
+      setWaiting("")
     }
   }
 
@@ -2852,6 +2871,19 @@ class AutomaticOrbiter {
     this.camera.position.set(newPos.x, newPos.y, newPos.z)
     this.camera.lookAt(this.lookAtPos)
     this.camera.updateWorldMatrix()
+  }
+}
+
+// Utility functions
+
+// simplifies flow of things
+var runWithErrMsgAsync = async (promise, err) => {
+  try {
+    var res = await promise
+    return res
+  } catch(e) {
+    console.log(e)
+    throw err
   }
 }
 
