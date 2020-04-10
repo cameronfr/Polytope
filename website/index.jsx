@@ -1484,7 +1484,7 @@ class VoxelRenderer {
       //     bool inWorld = clamp(rayPos, 0.0, float(worldSize) - 0.0000000001) == rayPos;
       //     vec3 possibleEdge = vec3(floor(rayPos.x), floor(rayPos.y), floor(rayPos.z));
       //     vec4 possibleBlock = blockValueAtIndex(possibleEdge);
-      //     float shouldUpdateOutputs = float(inWorld && possibleBlock.a != 0.0 && blockValue.a == 0.0);
+      //     float shouldUpdateOutputs = float(inWorld && possibleBlock.a != 0.0 && blockValue.x == 0.0);
       //
       //     edge = shouldUpdateOutputs * possibleEdge + (1.0-shouldUpdateOutputs) * edge;
       //     blockValue = shouldUpdateOutputs * possibleBlock + (1.0-shouldUpdateOutputs) * blockValue;
@@ -1508,8 +1508,8 @@ class VoxelRenderer {
 
           vec3 edge = vec3(floor(rayPos.x), floor(rayPos.y), floor(rayPos.z));
           vec4 blockValue = blockValueAtIndex(edge);
-          bool isNonBlankBlock = blockValue.a > 0.0;
-          // bool isOutOfBoundsBlock = blockValue.a == -1.0;
+          bool isNonBlankBlock = blockValue.x > 0.0;
+          // bool isOutOfBoundsBlock = blockValue.x == -1.0;
 
           if (isNonBlankBlock) {
             blockIdx = edge;
@@ -1667,7 +1667,7 @@ class VoxelRenderer {
         vec4 blockValue = raymarchToBlock(cameraPos, rayDir, blockIdx, hitPos);
 
         // no block hit
-        if (blockValue.a == 0.0) {
+        if (blockValue.x == 0.0) {
           gl_FragColor = vec4(getSky(rayDir.xy), 1);
           return;
         }
@@ -1685,7 +1685,7 @@ class VoxelRenderer {
 
         vec3 isSideHit = floor(abs(hitDists) / 0.495);
         bool isEdge = isSideHit.x + isSideHit.y + isSideHit.z >= 2.0;
-        bool shouldDrawEdge = blockValue.x == 1.0/255.0;
+        bool shouldDrawEdge = blockValue.a == 1.0/255.0;
 
         if (false && length(hitDists) > 0.8) {
           gl_FragColor = vec4(0, 0, 0, 1); // corner marks
@@ -1696,7 +1696,7 @@ class VoxelRenderer {
           if (dot(hitNorm, -lightDir) < 0.0) {
             reflectRayCosSim = 0.0;
           }
-          float blockIdx = floor(blockValue.a * 255.0) - 1.0;
+          float blockIdx = floor(blockValue.x * 255.0) - 1.0;
           vec3 blockColor = texture2DLodEXT(colorStorage, vec2(blockIdx/16.0, 0.0), 0.0).rgb;
           vec3 colorMix  = (0.0*reflectRayCosSim + 0.6*rayNormCosSim + 0.66) * blockColor * ambientOcclusionAlpha;
           // vec3 colorMix  = blockColor * ambientOcclusionAlpha;
@@ -1992,7 +1992,7 @@ class WorldGenerator {
   }
 
   bottomPlate(blockID) {
-    var bottomSlice = this.blocks.lo(0, 0, 0, 3).hi(this.blocks.shape[0], 1, this.blocks.shape[2], 1)
+    var bottomSlice = this.blocks.lo(0, 0, 0, 0).hi(this.blocks.shape[0], 1, this.blocks.shape[2], 1)
     var blockID = blockID == undefined ? 1 : blockID
     np.assigns(bottomSlice, blockID)
 
@@ -2001,7 +2001,7 @@ class WorldGenerator {
 
   colorStripe() {
     for (var z = 0; z < this.blocks.shape[2]; z++) {
-      this.blocks.set(1, 1, z, 3, z)
+      this.blocks.set(1, 1, z, 0, z)
     }
     return this
   }
@@ -2032,7 +2032,7 @@ class WorldGenerator {
     startCornerPos.set(1, 1) //make it rest on the floor plate
 
     var randomColor = Math.floor(randomGen.random() * 16) * 1
-    var prismSlice = this.blocks.lo(...startCornerPos.data, 3).hi(...widths.data, 1)
+    var prismSlice = this.blocks.lo(...startCornerPos.data, 0).hi(...widths.data, 1)
     np.assigns(prismSlice, randomColor)
 
     return this
@@ -2116,20 +2116,20 @@ class GameState {
     if (!this.withinWorldBounds(pos)) {
       return false
     }
-    let exists = this.blocks.get(pos.x, pos.y, pos.z, 3) != 0
+    let exists = this.blocks.get(pos.x, pos.y, pos.z, 0) != 0
     return exists
   }
 
   addBlock(pos, id) {
-    this.blocks.set(pos.x, pos.y, pos.z, 3, id)
+    this.blocks.set(pos.x, pos.y, pos.z, 0, id)
   }
 
   removeBlock(pos, id) {
-    this.blocks.set(pos.x, pos.y, pos.z, 3, 0)
+    this.blocks.set(pos.x, pos.y, pos.z, 0, 0)
   }
 
   toggleBlockOutline(pos, status) {
-    this.blocks.set(pos.x, pos.y, pos.z, 0, status ? 1 : 0)
+    this.blocks.set(pos.x, pos.y, pos.z, 3, status ? 1 : 0)
   }
 
   withinWorldBounds(pos) {
