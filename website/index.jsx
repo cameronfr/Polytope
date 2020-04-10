@@ -162,7 +162,7 @@ class APIFetcher {
     name = name[0].toUpperCase() + name.slice(1, name.length)
     const ownerId = Web3Utils.sha3(id.toString()).slice(0, 42)
 
-    const worldSize = new Vector3(17, 17, 17)
+    const worldSize = new Vector3(16, 17, 16)
     var gen = (new WorldGenerator({worldSize}))//.worldWithPlate()
     var range = [...Array(Math.floor(randomGen.random()*5)+3)]
     range.forEach((val, idx) => gen.randomRectangularPrism({seed:seed+idx}))
@@ -355,7 +355,7 @@ class Datastore {
       this.pendingEndpointCalls[kind][id] = call
       data = await call
     } else if (kind == "item") {
-      var call = this.getItem({id})
+      var call = this.getItem({id}).catch(e => {console.log(e); return "INVALID"})
       this.pendingEndpointCalls[kind][id] = call
       data = await call
     } else if (kind == "web3Stuff") {
@@ -396,8 +396,9 @@ class Datastore {
     var [apiItem, tokenItem] = await Promise.all([apiCall, tokenCall])
 
     var {name, description, blocks} = apiItem.metadata
-    var metadata = {name, description, blocks} //need to change order for hash
-    var calculatedMetadataHash = keccakUtf8(JSON.stringify(metadata))
+    if (blocks.length != (16*16*16*1)) {throw "blocks metadata invalid"}
+    // might want other checks like above, goal is that if data that was hashed is different, what shows up on screen in the game should be different.
+    var calculatedMetadataHash = keccakUtf8(JSON.stringify(apiItem.metadata, ["name", "description", "blocks"]))
     if (calculatedMetadataHash != tokenItem.metadataHash) {throw "metadata hash incorrect"}
     var calculatedBlocksHash = keccakUtf8(JSON.stringify(blocks))
     if (calculatedBlocksHash != tokenItem.id) {throw "blocks hash doesn't match token id"}
@@ -417,9 +418,9 @@ class Datastore {
   }
 
   processRawBlocks(blocksObject) {
-    var rawBlocks = ndarray(new Uint8Array(blocksObject), [16,16,16,4])
-    var blocks = ndarray(new Uint8Array(17*17*17*4), [17, 17, 17, 4])
-    var nonFloorSlice = blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 4)
+    var rawBlocks = ndarray(new Uint8Array(blocksObject), [16,16,16,1])
+    var blocks = ndarray(new Uint8Array(16*17*16*4), [16, 17, 16, 4])
+    var nonFloorSlice = blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 1)
     np.assign(nonFloorSlice, rawBlocks)
     return blocks
   }
@@ -532,7 +533,6 @@ var useGetFromDatastore = ({id, kind, dontUse}) => {
   // update on item changes
   React.useEffect(() => {
     if (propsGood && !dontUse) {
-      var cbID = Math.random()
       var callback = () => {
         setShouldUpdateCounter(shouldUpdateCounter + 1)
       }
@@ -861,7 +861,7 @@ var ListingCard = props => {
     }
     setupBlockdisplay()
     return cancelBlockDisplay
-  }, [props.id, props.voxelRenderer, item])
+  }, [props.id, props.voxelRenderer, item.blocks])
 
   const {price, name, description, notForSale, authorId, ownerId} = item
 
@@ -1589,7 +1589,7 @@ class VoxelRenderer {
         for (int i=0; i<4; i++) {
           vec3 adjacentBlockPos = blockIdx + hitNorm + sideDirs[i];
           vec4 adjacentBlockVal = blockValueAtIndex(adjacentBlockPos);
-          if (adjacentBlockVal.a > 0.0) {
+          if (adjacentBlockVal.x > 0.0) {
             float dist = length(abs(sideDirs[i]) * abs(adjacentBlockPos + vec3(0.5, 0.5, 0.5) - hitPos)) - 0.5;
             avgDist = opSmoothUnion(avgDist, dist, 0.2);
           }
@@ -1598,7 +1598,7 @@ class VoxelRenderer {
         for (int i=0; i<4; i++) {
           vec3 adjacentBlockPos = blockIdx + hitNorm + cornerDirs[i];
           vec4 adjacentBlockVal = blockValueAtIndex(adjacentBlockPos);
-          if (adjacentBlockVal.a > 0.0) {
+          if (adjacentBlockVal.x > 0.0) {
             vec3 cornerPos = adjacentBlockPos + vec3(0.5, 0.5, 0.5) - cornerDirs[i] * 0.5;
             float dist = length(abs(cornerDirs[i]) * abs(cornerPos - hitPos));
             avgDist = min(avgDist, dist);
@@ -1930,12 +1930,20 @@ class VoxelEditor extends React.Component {
     this.camera.updateProjectionMatrix()
   }
 
-  // removes build plate. must copy because regl can't handle slices.
-  getPublishableBlocks() {
-    var validSlice = this.gameState.blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 4)
-    var publishableBlocks = ndarray(new Uint8Array(16*16*16*4), [16, 16, 16, 4])
+  // removes build plate. and only takes block dim of vec4
+  getRawBlocks() {
+    var validSlice = this.gameState.blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 1)
+    var publishableBlocks = ndarray(new Uint8Array(16*16*16*1), [16, 16, 16, 1])
     np.assign(publishableBlocks, validSlice)
     return publishableBlocks
+  }
+
+  //just removes build plate
+  getDisplayBlocks() {
+    var validSlice = this.gameState.blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 4)
+    var displayBlocks = ndarray(new Uint8Array(16*16*16*4), [16, 16, 16, 4])
+    np.assign(displayBlocks, validSlice)
+    return displayBlocks
   }
 
   render() {
@@ -1945,7 +1953,7 @@ class VoxelEditor extends React.Component {
         this.setState({atPublishDialog: false})
         this.controls.interactionEnabled = true
       }
-      sidebar = <PublishItemPanel onGoBack={onGoBack} blocks={this.getPublishableBlocks()}/>
+      sidebar = <PublishItemPanel onGoBack={onGoBack} rawBlocks={this.getRawBlocks()} blocks={this.getDisplayBlocks()}/>
     } else {
       var onContinue = () => {
         this.setState({atPublishDialog: true})
@@ -2311,10 +2319,11 @@ var PublishItemPanel = props => {
       if (!web3) {await datastore.requestWeb3(); throw "Web3 loaded, please mint again"}
       if (!web3 || !userAddress) {throw "Not logged into web3"}
 
-      var rawBlocks = Array.from(props.blocks.data)
+      var rawBlocks = Array.from(props.rawBlocks.data)
       var blocksHash = keccakUtf8(JSON.stringify(rawBlocks))
       var metadata = {name, description, blocks: rawBlocks}
-      var metadataHash = keccakUtf8(JSON.stringify(metadata))
+      // note that second arg to JSON.stringify will guarantee order but will get rid of nested obj
+      var metadataHash = keccakUtf8(JSON.stringify(metadata, ["name", "description", "blocks"]))
 
       setWaiting("Uploading metadata to server")
       await runWithErrMsgAsync(datastore.setItemData({metadata, metadataHash, id: blocksHash}), "Error uploading metadata")
@@ -2335,8 +2344,9 @@ var PublishItemPanel = props => {
           error = <>Token already exists {tokenLink}!</>
         } else if (receipt) {
           error = "Not enough Gas"
+        } else {
+          error = "Error starting contract call" //prob rejected
         }
-        error = "Error starting contract call" //prob rejected
         setNotification(error)
         setWaiting("")
       })
