@@ -247,7 +247,7 @@ class TokenFetcher {
     // blockchain: date created, ownerId, authorId, metadataHash (to verify against hash of metadata)
     // metadata  : blocks (to verify against tokenId), name, description
     // These have to be "merged" to get a full item
-  async getByOwner({id, web3}) {
+  async getIdsByOwner({id, web3}) {
     var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
     var numTokens = await tokenContract.methods.balanceOf(id).call()
     numTokens = parseInt(numTokens)
@@ -266,7 +266,7 @@ class TokenFetcher {
     return parseInt(numTokens)
   }
 
-  async getByIndexes({web3, indexes}) {
+  async getIdsByIndexes({web3, indexes}) {
     var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
     var fetchPromises = indexes.map(async (idx) => {
       var tokenId = await tokenContract.methods.tokenByIndex(idx).call()
@@ -405,7 +405,7 @@ class Datastore {
     if (type == "byOwner") {
       if (this.sortingsCache["byOwner"][id]) {return this.sortingsCache["byOwner"][id]}
 
-      var res = await this.tokenFetcher.getIdsByOwner({id, web3:  v})
+      var res = await this.tokenFetcher.getIdsByOwner({id, web3: this.cache["web3Stuff"]["web3"].data})
       this.sortingsCache["byOwner"][id] = res
       return res
     } else if (type == "new" || type == "old" || type == "random") {
@@ -433,7 +433,7 @@ class Datastore {
           }
         }
       }
-      var ids = await this.tokenFetcher.getByIndexes({web3: this.cache["web3Stuff"]["web3"].data, indexes})
+      var ids = await this.tokenFetcher.getIdsByIndexes({web3: this.cache["web3Stuff"]["web3"].data, indexes})
       this.sortingsCache[type] = ids
       return ids
     } else if (type == "popular") {
@@ -919,7 +919,7 @@ var ListingCard = props => {
     return cancelBlockDisplay
   }, [props.id, props.voxelRenderer, item.blocks])
 
-  const {price, name, description, notForSale, authorId, ownerId} = item
+  const {price, name, description, authorId, ownerId} = item
 
   var cardInterior = <>
     <canvas ref={canvasRef} style={{height: props.imageSize+"px"}} width={props.imageSize} height={props.imageSize}></canvas>
@@ -932,7 +932,7 @@ var ListingCard = props => {
         {description || " "}
       </ParagraphSmall>
       <LabelSmall style={{margin: 0, textAlign: "right", marginTop: "5px"}} color={["contentSecondary"]}>
-        {notForSale ? "Not For Sale" : price + " ETH"}
+        {!price ? "Not For Sale" : price + " ETH"}
       </LabelSmall>
     </div>
   </>
