@@ -258,7 +258,7 @@ class TokenFetcher {
   async numTokens({web3}) {
     var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
     var numTokens = await tokenContract.methods.totalSupply().call()
-    return numTokens
+    return parseInt(numTokens)
   }
 
   async getByIndexes({web3, indexes}) {
@@ -392,14 +392,15 @@ class Datastore {
     return data
   }
 
-  async getSorting({type, id, page}) {
-    const pageSize = 50
+  async getSorting({type, id, page, pageSize}) {
+    pageSize = pageSize || 50
+    page = page || 0
     this.sortingsCache = this.sortingsCache || {byOwner: {}}
 
     if (type == "byOwner") {
       if (this.sortingsCache["byOwner"][id]) {return this.sortingsCache["byOwner"][id]}
 
-      var res = await this.tokenFetcher.getIdsByOwner({id, web3: this.cache["web3Stuff"]["web3"].data})
+      var res = await this.tokenFetcher.getIdsByOwner({id, web3:  v})
       this.sortingsCache["byOwner"][id] = res
       return res
     } else if (type == "new" || type == "old" || type == "random") {
@@ -410,17 +411,21 @@ class Datastore {
       var indexes = []
 
       if (type == "new") {
-        for (var i=Math.max(0, numTokens-pageSize); i< numTokens; i++) {
+        for (var i=Math.max(0, numTokens-(page+1)*pageSize); i<numTokens-page*pageSize; i++) {
           indexes.unshift(i)
         }
       } else if (type == "old") {
-        for (var i=0; i< Math.min(numTokens, pageSize); i++) {
+        for (var i=page*pageSize; i< Math.min(numTokens, (page=1)*pageSize); i++) {
           indexes.push(i)
         }
       } else if (type == "random") {
-        while (indexes.length < pageSize) {
-          var rand = Math.floor(Math.random() * numTokens)
-          !(rand in indexes) && indexes.push(rand)
+        if (pageSize >= numTokens) {
+          indexes = [...Array(numTokens).keys()]
+        } else {
+          while (indexes.length < pageSize) {
+            var rand = Math.floor(Math.random() * numTokens)
+            !(rand in indexes) && indexes.push(rand)
+          }
         }
       }
       var ids = await this.tokenFetcher.getByIndexes({web3: this.cache["web3Stuff"]["web3"].data, indexes})
@@ -670,7 +675,7 @@ var SidebarAndListings = props => {
     </div>
     <div style={{position: "relative"}}>
       <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0", overflow: "auto"}}>
-        <Listings sorting={activeSidebarIdx && sidebarItems[activeSidebarIdx].sorting} />
+        <Listings sorting={(activeSidebarIdx != null) && sidebarItems[activeSidebarIdx].sorting} />
       </div>
     </div>
   </div>
@@ -800,7 +805,6 @@ var UserProfile = props => {
 }
 
 var Listings = props => {
-
   const cardGap = THEME.sizing.scale1000
   const sidesGap = THEME.sizing.scale1400
 
@@ -1110,10 +1114,21 @@ var LandingPage = props => {
     return () => renderer.destroy()
   }, [])
 
+  var [cardItemIds, setCardItemIds] = React.useState([])
+  var isWaitingWeb3 = !useGetFromDatastore({kind: "web3Stuff", id: "web3"})
+  // can't add [isWaitingWeb3] into React useffect second arg -- doesn't change in func for some reason
+  React.useEffect(() => {
+    var getDisplayCards = async () => {
+      var tokenIds = await datastore.getSorting({type: "random", pageSize: 3})
+      setCardItemIds(tokenIds)
+    }
+    !isWaitingWeb3 && !(cardItemIds == []) && getDisplayCards()
+  })
+
   // card area
   const backgroundColor = "#eee"
   var cards = [...Array(3).keys()].map(idx => {
-    var itemId = Web3Utils.sha3(idx.toString())
+    var itemId = cardItemIds[idx] || null
     var card = <ListingCard key={idx} id={itemId} voxelRenderer={voxelRenderer} imageSize={220} />
     var container = <div style={{display: "flex", justifyContent: "center"}}>{card}</div>
     return card
