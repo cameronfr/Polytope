@@ -1,4 +1,4 @@
-from flask import Flask, make_response, request
+from flask import Flask, make_response, request, jsonify
 from flask_limiter import Limiter
 from flask_limiter.util import get_ipaddr
 
@@ -145,6 +145,17 @@ def getItemData():
 
     return make_response(items, 200)
 
+@app.route("/getPopularItems", methods=["POST"])
+def getPopularItems():
+    query = datastoreClient.query(kind="ItemStats")
+    query.order = ["-totalVisited"]
+    query.keys_only()
+    res = list(query.fetch())
+
+    retData = [item.key.id_or_name for item in res]
+
+    return make_response(jsonify(retData), 200)
+
 # used for setting popularity stats for now
 @app.route("/getItemDetails", methods=["POST"])
 def getItemDetails():
@@ -162,6 +173,11 @@ def getItemDetails():
         clientStats = visitors[clientIp]
         clientStats["lastVisited"] = datetime.datetime.utcnow()
         clientStats["count"] += 1
+
+        if clientStats["count"] == 1:
+            # first visit
+            itemStats["totalVisited"] = itemStats["totalVisited"] if "totalVisited" in itemStats else 0
+            itemStats["totalVisited"] += 1
 
         datastoreClient.put(itemStats)
         print(itemStats)

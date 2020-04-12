@@ -223,6 +223,11 @@ class APIFetcher {
     var res = await this.callEndpoint("/getItemDetails", {id}, "POST")
   }
 
+  async getPopularItems() {
+    var res = await this.callEndpoint("/getPopularItems", {}, "POST").then(res => res.json())
+    return res
+  }
+
   async callEndpoint(endpointFunction, dataDict, method) {
     var res = await fetch(APIEndpoint+endpointFunction, {
       method,
@@ -429,6 +434,11 @@ class Datastore {
         }
       }
       var ids = await this.tokenFetcher.getByIndexes({web3: this.cache["web3Stuff"]["web3"].data, indexes})
+      this.sortingsCache[type] = ids
+      return ids
+    } else if (type == "popular") {
+      if (this.sortingsCache[type]) {return this.sortingsCache[type]}
+      var ids = await this.apiFetcher.getPopularItems()
       this.sortingsCache[type] = ids
       return ids
     }
