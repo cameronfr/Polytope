@@ -94,9 +94,11 @@ var tokenContractAddress = ""
 var globalDebug = false
 if (process.env.NODE_ENV == "development") {
   APIEndpoint = "http://localhost:5000"
-  tokenContractAddress = "0xb86A615c2817aAf6A03e64b1B92090444d1970a5"
+  // tokenContractAddress = "0xb86A615c2817aAf6A03e64b1B92090444d1970a5" //contract w/o mint fee
+  tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe" // contract w/ mint fee
   globalDebug = true
 }
+const mintFee = 5000000000000000
 
 class APIFetcher {
 
@@ -244,17 +246,30 @@ class TokenFetcher {
     var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
     var numTokens = await tokenContract.methods.balanceOf(id).call()
     numTokens = parseInt(numTokens)
-    var tokens = []
     var fetchPromises = [...Array(numTokens).keys()].map(async (idx) => {
       var tokenId = await tokenContract.methods.tokenOfOwnerByIndex(id, idx).call()
       tokenId = Web3Utils.padLeft(Web3Utils.toHex(tokenId), 256/4)
-      // tokens.push({id: tokenId, ownerId: id})
-      tokens.push(tokenId)
+      return tokenId
     })
-    await Promise.all(fetchPromises)
+    var tokenIds = await Promise.all(fetchPromises)
+    return tokenIds
+  }
 
-    // await this.finishProcessing({tokens, web3})
-    return tokens
+  async numTokens({web3}) {
+    var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
+    var numTokens = await tokenContract.methods.totalSupply().call()
+    return numTokens
+  }
+
+  async getByIndexes({web3, indexes}) {
+    var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
+    var fetchPromises = indexes.map(async (idx) => {
+      var tokenId = await tokenContract.methods.tokenByIndex(idx).call()
+      tokenId = Web3Utils.padLeft(Web3Utils.toHex(tokenId), 256/4)
+      return tokenId
+    })
+    var tokenIds = await Promise.all(fetchPromises)
+    return tokenIds
   }
 
   async addItemAuthorAndDate({token, tokenContract, web3}) {
@@ -304,7 +319,8 @@ class TokenFetcher {
     var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
     var send = tokenContract.methods.mint(userAddress, tokenId, metadataHash).send({
       from: userAddress,
-      gas: 400000
+      gas: 400000,
+      value: mintFee,
     })
     return send
   }
@@ -377,14 +393,39 @@ class Datastore {
   }
 
   async getSorting({type, id, page}) {
+    const pageSize = 50
     this.sortingsCache = this.sortingsCache || {byOwner: {}}
+
     if (type == "byOwner") {
-      if (this.sortingsCache["byOwner"][id]) {
-        return this.sortingsCache["byOwner"][id]
-      }
-      var res = await this.tokenFetcher.getByOwner({id, web3: this.cache["web3Stuff"]["web3"].data})
+      if (this.sortingsCache["byOwner"][id]) {return this.sortingsCache["byOwner"][id]}
+
+      var res = await this.tokenFetcher.getIdsByOwner({id, web3: this.cache["web3Stuff"]["web3"].data})
       this.sortingsCache["byOwner"][id] = res
       return res
+    } else if (type == "new" || type == "old" || type == "random") {
+      if (this.sortingsCache[type]) {return this.sortingsCache[type]}
+
+      var numTokens = this.numTokens || await this.tokenFetcher.numTokens({web3: this.cache["web3Stuff"]["web3"].data})
+      this.numTokens = numTokens
+      var indexes = []
+
+      if (type == "new") {
+        for (var i=Math.max(0, numTokens-pageSize); i< numTokens; i++) {
+          indexes.unshift(i)
+        }
+      } else if (type == "old") {
+        for (var i=0; i< Math.min(numTokens, pageSize); i++) {
+          indexes.push(i)
+        }
+      } else if (type == "random") {
+        while (indexes.length < pageSize) {
+          var rand = Math.floor(Math.random() * numTokens)
+          !(rand in indexes) && indexes.push(rand)
+        }
+      }
+      var ids = await this.tokenFetcher.getByIndexes({web3: this.cache["web3Stuff"]["web3"].data, indexes})
+      this.sortingsCache[type] = ids
+      return ids
     }
   }
 
@@ -597,22 +638,23 @@ class App extends React.Component {
 }
 
 var SidebarAndListings = props => {
-  const sidebarItems = [
-    {title: "Random"},
-    {title: "Popular"},
-    {title: "New"},
-    {title: "Cheap"},
-    {title: "Old"},
-    {title: "Expensive"},
+  var sidebarItems = [
+    {title: "Random", sorting: {type: "random"}},
+    {title: "Popular", sorting: {type: "popular"}},
+    {title: "New", sorting: {type: "new"}},
+    {title: "Cheap", sorting: {type: "cheap"}},
+    {title: "Old", sorting: {type: "old"}},
+    {title: "Expensive", sorting: {type: "expensive"}},
   ]
-  const navigationItems = sidebarItems.map(({title}) => ({title, itemId: "#"+title.toLowerCase()}))
+  var sidebarItems = sidebarItems.map(item => ({...item, itemId: "#"+item.title.toLowerCase()}))
+  const sidebarIds = sidebarItems.map(item => item.itemId)
 
-  const [activeSidebarId, setActiveSidebarId] = React.useState()
+  const [activeSidebarIdx, setActiveSidebarIdx] = React.useState()
 
   React.useEffect(() => {
     const defaultSidebarId = "#popular"
-    const newSidebarId = navigationItems.map(item => item.itemId).includes(props.location.hash) ? props.location.hash : defaultSidebarId
-    setActiveSidebarId(newSidebarId)
+    const newSidebarId = sidebarIds.includes(props.location.hash) ? props.location.hash : defaultSidebarId
+    setActiveSidebarIdx(sidebarIds.indexOf(newSidebarId))
   })
   var onChange = ({event, item}) => {
     event.preventDefault()
@@ -620,15 +662,15 @@ var SidebarAndListings = props => {
   }
 
   // setting window title
-  if (activeSidebarId) {document.title = `Polytope | ${activeSidebarId}`}
+  if (activeSidebarIdx) {document.title = `Polytope | ${sidebarItems[activeSidebarIdx].itemId}`}
 
   return <div style={{display: "grid", gridTemplateColumns: "auto 1fr", height: "100%"}}>
     <div style={{width: "200px", marginLeft: THEME.sizing.scale1400, marginTop: THEME.sizing.scale1400, boxSizing: "border-box"}}>
-      <Navigation items={navigationItems} activeItemId={activeSidebarId} onChange={onChange}/>
+      <Navigation items={sidebarItems} activeItemId={sidebarIds[activeSidebarIdx]} onChange={onChange}/>
     </div>
     <div style={{position: "relative"}}>
       <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0", overflow: "auto"}}>
-        <Listings />
+        <Listings sorting={activeSidebarIdx && sidebarItems[activeSidebarIdx].sorting} />
       </div>
     </div>
   </div>
@@ -1014,6 +1056,9 @@ var Listing = props => {
   // setting window title
   if (item.name) {document.title = `Polytope | ${item.name}`}
 
+  var dateCreated = new Date(0)
+  dateCreated.setUTCSeconds(item.dateCreated)
+  var dateString = "Created " + dateCreated.toLocaleString(undefined, {month: "long", year: "numeric", day: "numeric", hour: "numeric", minute: "numeric"})
   const blockMargins = 28
 
   return <>
@@ -1044,9 +1089,12 @@ var Listing = props => {
             </LabelLarge>
             <AvatarAndName id={item.authorId} labelColor={"colorSecondary"} />
           </div>
-          <ParagraphMedium style={{marginTop: "25px", paddingLeft: "2px", lineHeight: "2em"}}>
+          <LabelLarge color={["colorSecondary"]} style={{whiteSpace: "nowrap", textAlign: "left",  marginTop: "25px"}}>
+            {dateString}
+          </LabelLarge>
+          <LabelLarge style={{marginTop: "25px", paddingLeft: "2px", lineHeight: "2em"}}>
             {item.description}
-          </ParagraphMedium>
+          </LabelLarge>
         </div>
       </div>
     </div>
@@ -1107,7 +1155,7 @@ var LandingPage = props => {
       </HeadingMedium> )}
       {listRow(2, <HeadingMedium style={listItemStyle} color={["contentSecondary"]}>
         <div>
-          Mint the <StyledLink href="http://erc721.org/">erc721</StyledLink> token for your item on the ethereum blockchain.
+          Mint the non-fungible token for your item on the ethereum blockchain.
         </div>
       </HeadingMedium> )}
       {listRow(3, <HeadingMedium style={listItemStyle} color={["contentSecondary"]}>
@@ -1193,7 +1241,7 @@ var LandingPage = props => {
         Get Started:
       </HeadingLarge>
       {buttonArea}
-      An item's token on the blockchain is irreversibly tied to the item's blocks, such that no two tokens can have the same arrangement of blocks. Specifically, the tokenId on the blockchain is equal to the sha3 hash of an item's blocks.
+      An item's token on the blockchain is irreversibly tied to the item's blocks, such that no two of the <StyledLink href="http://erc721.org/">erc721</StyledLink> tokens can have the same arrangement of blocks. Specifically, the tokenId on the blockchain is equal to the sha3 hash of an item's blocks.
     </div>
     {footer}
   </>
@@ -1991,6 +2039,7 @@ class WorldGenerator {
       const worldShape = [worldSize.x, worldSize.y, worldSize.z, 4]
       const numBlocks = worldShape.reduce((a, b) => a*b, 1)
       this.blocks = ndarray(new Uint8Array(numBlocks), worldShape)
+      np.assigns(this.blocks, 0)
     } else if (blocks) {
       this.blocks = blocks
     } else {
@@ -2331,7 +2380,7 @@ var PublishItemPanel = props => {
       setWaiting("Waiting for mint transaction approval")
       var mintPromise = datastore.mintToken({tokenId: blocksHash, metadataHash, userAddress})
       mintPromise.on("transactionHash", hash => {
-        setWaiting("Waiting for transaction confirmation")
+        setWaiting("Waiting for transaction confirmations")
       }).on("receipt", receipt => {
         setSuccess({blocksHash, transactionHash: receipt.transactionHash})
       }).on("error", (error, receipt) => {
