@@ -56,6 +56,9 @@ contract ERC721 is Context, ERC165, IERC721, IERC721Metadata, IERC721Enumerable 
     // Mapping from token id to position in the allTokens array
     mapping(uint256 => uint256) private _allTokensIndex;
 
+    // Fees
+    uint256 private constant _mintFee = 5000000000000000;
+    address payable private constant _feeRecipient = 0xf91B98fe5Cc2a590C5d3DA72324f8A52F241D96B;
 
     bytes4 private constant _INTERFACE_ID_ERC721 = 0x80ac58cd;
     bytes4 private constant _INTERFACE_ID_ERC721_METADATA = 0x5b5e139f;
@@ -280,9 +283,12 @@ contract ERC721 is Context, ERC165, IERC721, IERC721Metadata, IERC721Enumerable 
      * @param to The address that will own the minted token
      * @param tokenId uint256 ID of the token to be minted
      */
-    function mint(address to, uint256 tokenId, uint256 metadataHash) external {
+    function mint(address to, uint256 tokenId, uint256 metadataHash) external payable {
         require(to != address(0), "ERC721: mint to the zero address");
         require(!_exists(tokenId), "ERC721: token already minted");
+        require(msg.value >= _mintFee, "Fee not provided");
+
+        _feeRecipient.transfer(msg.value);
 
         _tokenOwner[tokenId] = to;
         _ownedTokensCount[to].increment();
