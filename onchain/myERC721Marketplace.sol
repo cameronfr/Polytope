@@ -65,8 +65,9 @@ contract Market {
     address tokenOwner = tokenContract.ownerOf(tokenId);
     bool listingExists = tokenIsForSale[tokenId] != address(0);
     bool listingValid = tokenIsForSale[tokenId] == tokenOwner;
+    bool marketIsApproved = tokenContract.isApprovedForAll(tokenOwner, address(this));
 
-    return (listingExists && listingValid);
+    return (listingExists && listingValid && marketIsApproved);
   }
 
   function listingPrice(uint256 tokenId) view public returns (uint256) {
