@@ -8,6 +8,9 @@ contract Market {
 
   using SafeMath for uint256;
 
+  //Metadata
+  string private _name = "Polytope Market";
+
   // Token contract
   address private constant tokenContractAddress = 0xcEEF34aa024F024a872b4bA7216e9741Ac011efe;
   IERC721 private constant tokenContract = IERC721(tokenContractAddress);
