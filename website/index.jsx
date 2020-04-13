@@ -90,12 +90,14 @@ import RandomGen from "random-seed"
 // Endpoints
 var APIEndpoint = "https://app.polytope.space"
 const tokenContractABI = require("./tokenABI.json")
+const marketContractABI = require("./marketABI.json")
 var tokenContractAddress = ""
+var marketContractAddress = ""
 var globalDebug = false
 if (process.env.NODE_ENV == "development") {
   APIEndpoint = "http://localhost:5000"
-  // tokenContractAddress = "0xb86A615c2817aAf6A03e64b1B92090444d1970a5" //contract w/o mint fee
-  tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe" // contract w/ mint fee
+  tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe"
+  marketContractAddress = "0x30b726909A4E784524fdb1ada5358c7d862c41b5"
   globalDebug = true
 }
 const mintFee = 5000000000000000
@@ -337,6 +339,38 @@ class TokenFetcher {
   }
 }
 
+class MarketFetcher {
+  async getMarketInfo({web3, id}) {
+    var marketContract = new web3.eth.Contract(marketContractABI, marketContractAddress);
+    var isForSale = await marketContract.methods.isListed(id).call()
+    var price = null
+    if (isForSale) {
+      price = await marketContract.methods.listingPrice(id).call()
+    }
+    return {isForSale, price}
+  }
+
+  setMarketInfo({web3, tokenId, userAddress, isForSale, price}) {
+    var marketContract = new web3.eth.Contract(marketContractABI, marketContractAddress);
+    var send
+    console.log(tokenId, userAddress, isForSale, price)
+    if (!isForSale) {
+      send = marketContract.methods.delist(tokenId).send({
+        from: userAddress,
+        gas: 50000,
+      })
+    } else if (isForSale) {
+      console.log("calling list with", tokenId, price)
+      send = marketContract.methods.list(tokenId, price).send({
+        from: userAddress,
+        gas: 100000
+      })
+    }
+    return send
+  }
+
+}
+
 
 class Datastore {
 
@@ -361,8 +395,9 @@ class Datastore {
 
   apiFetcher = new APIFetcher()
   tokenFetcher = new TokenFetcher()
+  marketFetcher = new MarketFetcher()
 
-  async getData({id, kind, overrideCache, test}) {
+  async getData({id, kind, overrideCache}) {
     id = id.toLowerCase()
     if ((id in this.cache[kind]) && (this.cache[kind][id].data) && !overrideCache) {
       return this.cache[kind][id].data
@@ -446,10 +481,12 @@ class Datastore {
 
   async getItem({id}) {
     // return (await this.apiFetcher.generateItemData({id})) //for testing
+    var web3 = this.cache["web3Stuff"]["web3"].data
 
     var apiCall = this.apiFetcher.getItem({id})
-    var tokenCall = this.tokenFetcher.finishProcesing({token: {id}, web3: this.cache["web3Stuff"]["web3"].data})
-    var [apiItem, tokenItem] = await Promise.all([apiCall, tokenCall])
+    var tokenCall = this.tokenFetcher.finishProcesing({token: {id}, web3})
+    var marketCall = this.marketFetcher.getMarketInfo({id, web3})
+    var [apiItem, tokenItem, marketItem] = await Promise.all([apiCall, tokenCall, marketCall])
 
     var {name, description, blocks} = apiItem.metadata
     if (blocks.length != (16*16*16*1)) {throw "blocks metadata invalid"}
@@ -465,6 +502,7 @@ class Datastore {
       description,
       blocks: processedBlocks,
       ...tokenItem,
+      ...marketItem,
     }
     // blockchain: date created, ownerId, authorId, metadataHash (to verify against hash of metadata)
     // metadata  : blocks (to verify against tokenId), name, description
@@ -560,6 +598,9 @@ class Datastore {
   }
   getUserAddress() {
     return this.tokenFetcher.getUserAddress({web3: this.cache["web3Stuff"]["web3"].data})
+  }
+  setMarketInfo({tokenId, userAddress, isForSale, price}) {
+    return this.marketFetcher.setMarketInfo({tokenId, userAddress, isForSale, price, web3: this.cache["web3Stuff"]["web3"].data})
   }
 }
 
@@ -919,7 +960,7 @@ var ListingCard = props => {
     return cancelBlockDisplay
   }, [props.id, props.voxelRenderer, item.blocks])
 
-  const {price, name, description, authorId, ownerId} = item
+  const {price, isForSale, name, description, authorId, ownerId} = item
 
   var cardInterior = <>
     <canvas ref={canvasRef} style={{height: props.imageSize+"px"}} width={props.imageSize} height={props.imageSize}></canvas>
@@ -932,7 +973,7 @@ var ListingCard = props => {
         {description || " "}
       </ParagraphSmall>
       <LabelSmall style={{margin: 0, textAlign: "right", marginTop: "5px"}} color={["contentSecondary"]}>
-        {!price ? "Not For Sale" : price + " ETH"}
+        {!isForSale ? "Not For Sale" : weiStringToEthString(price) + " ETH"}
       </LabelSmall>
     </div>
   </>
@@ -1031,6 +1072,7 @@ var Listing = props => {
 
   // Game setup and destroy
   React.useEffect(() => {
+    console.log("Listing item is", item)
     if (!item.blocks) {return}
     var animationFrameRequestID
     var renderID
@@ -1063,6 +1105,7 @@ var Listing = props => {
     setupGame()
     return cleanupGame
   }, [props.id, item])
+  // NOTE: regl destroys the canvas on .destroy, this useEffect won't work as more than a componentDidMount
 
   var owner = useGetFromDatastore({id: item && item.ownerId, kind: "user"})
   var author = useGetFromDatastore({id: item && item.authorId, kind: "user"})
@@ -1075,40 +1118,107 @@ var Listing = props => {
   var dateString = "Created " + dateCreated.toLocaleString(undefined, {month: "long", year: "numeric", day: "numeric", hour: "numeric", minute: "numeric"})
   const blockMargins = 28
 
+  var canvasArea = <>
+    <div style={{width: viewAreaSize+"px", height: viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", margin: blockMargins+"px", position: "relative", zIndex: "1"}}>
+      <div style={{position: "absolute", top:"10px", right: "10px"}}>
+        <ControlsHelpTooltip hideEditControls/>
+      </div>
+      <canvas ref={canvasRef} style={{height: "100%", width: "100%"}}/>
+    </div>
+  </>
+
+  var informationArea = <>
+    <div style={{/*width: viewAreaSize+"px",*/flexBasis: "min-content", flexGrow: "1", maxWidth: viewAreaSize + "px", display: "grid", height: "min-content"}}>
+      <DisplaySmall>
+        {item.name || " "}
+      </DisplaySmall>
+      <LabelLarge style={{overflow: "auto", paddingLeft: "2px", marginTop: "25px", minWidth: "0"}} color={["contentSecondary"]}>
+        {props.id}
+      </LabelLarge>
+      <div style={{display: "grid", gridTemplateColumns: "repeat(2, min-content)", alignItems: "center", marginTop: "25px", paddingLeft: "2px", rowGap: "20px"}}>
+        <LabelLarge color={["colorSecondary"]} style={{marginRight: "10px", whiteSpace: "nowrap"}}>
+          {"Owner is"}
+        </LabelLarge>
+        <AvatarAndName id={item.ownerId} labelColor={"colorSecondary"} />
+        <LabelLarge color={["colorSecondary"]} style={{marginRight: "10px", whiteSpace: "nowrap", textAlign: "left"}}>
+          {"Maker is"}
+        </LabelLarge>
+        <AvatarAndName id={item.authorId} labelColor={"colorSecondary"} />
+      </div>
+      <LabelLarge color={["colorSecondary"]} style={{whiteSpace: "nowrap", textAlign: "left",  marginTop: "25px"}}>
+        {dateString}
+      </LabelLarge>
+      <LabelLarge style={{marginTop: "25px", paddingLeft: "2px", lineHeight: "2em"}}>
+        {item.description}
+      </LabelLarge>
+    </div>
+  </>
+
+  // Handles all the list / delist / buy stuff
+  var userAddress = useGetFromDatastore({kind: "web3Stuff", id: "useraddress"})
+  var [price, setPrice] = React.useState()
+  var [waiting, setWaiting] = React.useState()
+  var priceBN = ethStringToWei(price)
+  var priceValid = !priceBN.isNaN() && priceBN.gte(0)
+  var allFieldsValid = priceValid
+  var viewerIsOwner = item.ownerId == userAddress
+  var isForSale = item.isForSale
+  // for both listing and delisting
+  var setMarketInfoFlow = async (isForSale, price) => {
+    setWaiting("Please approve the transaction")
+    var setPromise = datastore.setMarketInfo({tokenId: item.id, userAddress, isForSale, price: priceBN})
+    setPromise.on("transactionHash", hash => {
+      setWaiting("Waiting for transaction confirmations")
+    }).on("receipt", receipt => {
+      console.log(receipt)
+      setWaiting("Refreshing item")
+      datastore.getData({id: item.id, kind: "item", overrideCache: true}).then(() => setWaiting(""))
+    }).on("error", (error, receipt) => {
+      setWaiting("")
+      console.log(error, receipt)
+    })
+  }
+
+  var buyArea = <>
+      <div style={{display: "flex", alignItems: "center", justifyContent: "space-around", border: "1px solid #000"}}>
+        <LabelLarge>{isForSale ? weiStringToEthString(item.price) + " ETH" : "Not For Sale"}</LabelLarge>
+      </div>
+      {isForSale && <Button kind={KIND.primary} size={SIZE.default}>Trade</Button>}
+  </>
+  var setNotForSaleArea = <>
+      <div style={{display: "flex", alignItems: "center", justifyContent: "space-around", border: "1px solid #000"}}>
+        <LabelLarge>{"Listed for " + weiStringToEthString(item.price) + " ETH"}</LabelLarge>
+      </div>
+      <Button kind={KIND.primary} size={SIZE.default} onClick={() => setMarketInfoFlow(false)}>Remove from market</Button>
+  </>
+  var setForSaleArea = <>
+    <Input size={SIZE.default} endEnhancer={"ETH"} onChange={e => setPrice(e.target.value)} error={price && !priceValid}></Input>
+    <Button style={{marginLeft: THEME.sizing.scale600}} kind={KIND.primary} size={SIZE.default} disabled={!allFieldsValid} onClick={() => setMarketInfoFlow(true, price)}>List on market</Button>
+  </>
+  var waitingArea = <>
+    <div style={{display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #000"}}>
+      <Spinner size={24}/>
+      <LabelLarge style={{marginLeft: THEME.sizing.scale600}}>
+        {waiting}
+      </LabelLarge>
+    </div>
+  </>
+  var nonWaitingStuff = viewerIsOwner ? (isForSale ? setNotForSaleArea : setForSaleArea) : buyArea
+  var marketArea = <>
+    <div style={{display: "grid", gridAutoFlow: "column", height: "min-content", height: "48px"}}>
+      {waiting ? waitingArea : nonWaitingStuff}
+    </div>
+  </>
+
   return <>
     <div style={{display: "flex", justifyContent: "center", alignItems: "center", padding: "28px"}}>
       <div style={{display: "flex", flexWrap: "nowrap"}}>
         {/*TODO: make this accessible */}
         <ArrowLeft size={40} onClick={() => window.history.back()} style={{color: "black", cursor: "pointer", marginTop: blockMargins+"px"}}/>
-        <div style={{width: viewAreaSize+"px", height: viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", margin: blockMargins+"px", position: "relative", zIndex: "1"}}>
-          <div style={{position: "absolute", top:"10px", right: "10px"}}>
-            <ControlsHelpTooltip hideEditControls/>
-          </div>
-          <canvas ref={canvasRef} style={{height: "100%", width: "100%"}}/>
-        </div>
-        <div style={{/*width: viewAreaSize+"px",*/flexBasis: "min-content", flexGrow: "1", maxWidth: viewAreaSize + "px", display: "grid", height: "min-content", margin: blockMargins+"px"}}>
-          <DisplaySmall>
-            {item.name || " "}
-          </DisplaySmall>
-          <LabelLarge style={{overflow: "auto", paddingLeft: "2px", marginTop: "25px", minWidth: "0"}} color={["contentSecondary"]}>
-            {props.id}
-          </LabelLarge>
-          <div style={{display: "grid", gridTemplateColumns: "repeat(2, min-content)", alignItems: "center", marginTop: "25px", paddingLeft: "2px", rowGap: "20px"}}>
-            <LabelLarge color={["colorSecondary"]} style={{marginRight: "10px", whiteSpace: "nowrap"}}>
-              {"Owner is"}
-            </LabelLarge>
-            <AvatarAndName id={item.ownerId} labelColor={"colorSecondary"} />
-            <LabelLarge color={["colorSecondary"]} style={{marginRight: "10px", whiteSpace: "nowrap", textAlign: "left"}}>
-              {"Maker is"}
-            </LabelLarge>
-            <AvatarAndName id={item.authorId} labelColor={"colorSecondary"} />
-          </div>
-          <LabelLarge color={["colorSecondary"]} style={{whiteSpace: "nowrap", textAlign: "left",  marginTop: "25px"}}>
-            {dateString}
-          </LabelLarge>
-          <LabelLarge style={{marginTop: "25px", paddingLeft: "2px", lineHeight: "2em"}}>
-            {item.description}
-          </LabelLarge>
+        {canvasArea}
+        <div style={{display: "grid", gridTemplateRows: "min-content 1fr", alignItems: "end", margin: blockMargins+"px"}}>
+          {informationArea}
+          {marketArea}
         </div>
       </div>
     </div>
@@ -1266,7 +1376,7 @@ var LandingPage = props => {
         Get Started:
       </HeadingLarge>
       {buttonArea}
-      An item's token on the blockchain is irreversibly tied to the item's blocks, such that no two of the <StyledLink href="http://erc721.org/">erc721</StyledLink> tokens can have the same arrangement of blocks. Specifically, the tokenId on the blockchain is equal to the sha3 hash of an item's blocks.
+      An item's token on the blockchain is irreversibly tied to the item's blocks, such that no two of the <StyledLink href="http://erc721.org/">erc721</StyledLink> tokens can have the same arrangement of blocks. Specifically, the tokenId on the blockchain is equal to the sha3 hash of an item's blocks. We are currently in BETA.
     </div>
     {footer}
   </>
@@ -2378,13 +2488,6 @@ var PublishItemPanel = props => {
     window.localStorage.setItem("publishItemPanelState", JSON.stringify(saveDict))
   })
 
-  // actual minting stuff
-  var ethStringToWei = amountString => {
-    const ETH_DECIMALS = 18
-    var tokenMultiplier = BigNumber(10).pow(BigNumber(ETH_DECIMALS))
-    var convertedAmount = tokenMultiplier.multipliedBy(BigNumber(amountString))
-    return convertedAmount
-  }
   var priceBN = ethStringToWei(price)
   var web3 = useGetFromDatastore({kind: "web3Stuff", id: "web3"})
   var userAddress = useGetFromDatastore({kind: "web3Stuff", id: "userAddress"})
@@ -2402,7 +2505,7 @@ var PublishItemPanel = props => {
       setWaiting("Uploading metadata to server")
       await runWithErrMsgAsync(datastore.setItemData({metadata, metadataHash, id: blocksHash}), "Error uploading metadata")
 
-      setWaiting("Waiting for mint transaction approval")
+      setWaiting("Please approve the mint transaction")
       var mintPromise = datastore.mintToken({tokenId: blocksHash, metadataHash, userAddress})
       mintPromise.on("transactionHash", hash => {
         setWaiting("Waiting for transaction confirmations")
@@ -2969,6 +3072,20 @@ var runWithErrMsgAsync = async (promise, err) => {
     console.log(e)
     throw err
   }
+}
+
+var ethStringToWei = amountString => {
+  const ETH_DECIMALS = 18
+  var tokenMultiplier = BigNumber(10).pow(BigNumber(ETH_DECIMALS))
+  var convertedAmount = tokenMultiplier.multipliedBy(BigNumber(amountString))
+  return convertedAmount
+}
+
+var weiStringToEthString = amountString => {
+  const ETH_DECIMALS = 18
+  var tokenMultiplier = BigNumber(10).pow(BigNumber(ETH_DECIMALS))
+  var convertedAmount = BigNumber(amountString).dividedBy(tokenMultiplier)
+  return convertedAmount.toFixed()
 }
 
 // note: web3 sha3 is actually keccak256. sha-3 standard is different from keccak256
