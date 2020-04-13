@@ -42,9 +42,9 @@ contract Market {
     address tokenOwner = tokenContract.ownerOf(tokenId);
     uint256 price = tokenPrice[tokenId];
 
-    require(tokenIsForSale[tokenId] != address(0));
-    require(tokenIsForSale[tokenId] == tokenOwner); // current owner must be the owner who listed it
-    require(msg.value == price);
+    require(tokenIsForSale[tokenId] != address(0), "Token not listed");
+    require(tokenIsForSale[tokenId] == tokenOwner, "Token listing invalid");
+    require(msg.value == price, "Insufficient funds sent");
 
     uint256 fee = msg.value >> feePower;
     uint256 payment = msg.value - fee;
@@ -67,7 +67,7 @@ contract Market {
   }
 
   function listingPrice(uint256 tokenId) view public returns (uint256) {
-    require(isListed(tokenId));
+    require(isListed(tokenId) == true, "Token not listed");
     uint256 price = tokenPrice[tokenId];
     return price;
   }
