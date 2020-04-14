@@ -34,10 +34,10 @@ import { Search } from "baseui/icon";
 import { Notification, KIND as NotificationKind} from "baseui/notification";
 import { toaster, ToasterContainer } from "baseui/toast";
 import { Checkbox, LABEL_PLACEMENT } from "baseui/checkbox";
-import { StatefulTooltip } from "baseui/tooltip";
+import { StatefulTooltip, PLACEMENT } from "baseui/tooltip";
 import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ChevronRight, Check } from "baseui/icon"
 import { MdMouse } from "react-icons/md"
-import {IoMdHelpCircleOutline, IoMdHelp} from "react-icons/io"
+import {IoMdHelpCircleOutline, IoMdHelp, IoMdInformationCircleOutline} from "react-icons/io"
 import { Navigation } from "baseui/side-navigation";
 import { Spinner } from "baseui/spinner";
 
@@ -337,6 +337,21 @@ class TokenFetcher {
     var userAddress = accounts[0]
     return userAddress
   }
+
+  async isApprovedForAll({web3, address, userAddress}) {
+    var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
+    var approved = await tokenContract.methods.isApprovedForAll(userAddress, address).call()
+    return approved
+  }
+
+  setApprovedForAll({web3, address, userAddress, approved}) {
+    var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
+    var send = tokenContract.methods.setApprovalForAll(address, approved).send({
+      from: userAddress,
+      gas: 50000,
+    })
+    return send
+  }
 }
 
 class MarketFetcher {
@@ -353,19 +368,27 @@ class MarketFetcher {
   setMarketInfo({web3, tokenId, userAddress, isForSale, price}) {
     var marketContract = new web3.eth.Contract(marketContractABI, marketContractAddress);
     var send
-    console.log(tokenId, userAddress, isForSale, price)
     if (!isForSale) {
       send = marketContract.methods.delist(tokenId).send({
         from: userAddress,
         gas: 50000,
       })
     } else if (isForSale) {
-      console.log("calling list with", tokenId, price)
       send = marketContract.methods.list(tokenId, price).send({
         from: userAddress,
         gas: 100000
       })
     }
+    return send
+  }
+
+  buyToken({web3, tokenId, price, userAddress}) {
+    var marketContract = new web3.eth.Contract(marketContractABI, marketContractAddress);
+    var send = marketContract.methods.buyFungible(tokenId).send({
+      from: userAddress,
+      gas: 400000,
+      value: price
+    })
     return send
   }
 
@@ -399,7 +422,7 @@ class Datastore {
 
   async getData({id, kind, overrideCache}) {
     id = id.toLowerCase()
-    if ((id in this.cache[kind]) && (this.cache[kind][id].data) && !overrideCache) {
+    if ((id in this.cache[kind]) && (this.cache[kind][id].data != undefined) && !overrideCache) {
       return this.cache[kind][id].data
     }
 
@@ -419,10 +442,16 @@ class Datastore {
         var call = this.getUserAddress()
         this.pendingEndpointCalls[kind][id] = call
         data = await call
+      } else if (id == "ismarketapprovedfortoken") {
+        const userAddress = await this.getData({kind: "web3Stuff", id: "userAddress"})
+        const web3 =  await this.getData({kind: "web3Stuff", id: "web3"})
+        var call = this.tokenFetcher.isApprovedForAll({address: marketContractAddress, web3, userAddress})
+        this.pendingEndpointCalls[kind][id] = call
+        data = await call
       } else if (id == "web3") {
         return null //should be in cache
       }
-      else {throw "web3stuff id not found"}
+      else {throw `web3stuff ${id} not found`}
     } else {throw "kind not found"}
     delete this.pendingEndpointCalls[kind][id]
 
@@ -580,7 +609,8 @@ class Datastore {
     return (this.cache["web3Stuff"]["web3"] && this.cache["web3Stuff"]["web3"].data)
   }
 
-  // passthrough these for now
+  // PASSTHROUGH these for now.
+
   async setUserData(messageData) {
     await this.apiFetcher.setUserData(messageData)
   }
@@ -602,56 +632,175 @@ class Datastore {
   setMarketInfo({tokenId, userAddress, isForSale, price}) {
     return this.marketFetcher.setMarketInfo({tokenId, userAddress, isForSale, price, web3: this.cache["web3Stuff"]["web3"].data})
   }
+  setMarketApprovedForToken({approved, userAddress}) {
+    var send = this.tokenFetcher.setApprovedForAll({approved, address: marketContractAddress, userAddress, web3: this.cache["web3Stuff"]["web3"].data})
+    return send
+  }
+  buyToken({userAddress, tokenId, price}) {
+    var send = this.marketFetcher.buyToken({userAddress, tokenId, price, web3: this.cache["web3Stuff"]["web3"].data})
+    return send
+  }
+}
+
+var setMarketApprovedForTokenFlow = async (approved, setWaiting, setError) => {
+  var userAddress = await datastore.getData({id: "userAddress", kind: "web3Stuff"})
+  var approvalStatus = await datastore.getData({id: "isMarketApprovedForToken", kind: "web3Stuff"})
+  if (approvalStatus == approved) {return}
+  var transactionPromise = new Promise((resolve, reject) => {
+    var transactionSend = datastore.setMarketApprovedForToken({approved, userAddress})
+    setWaiting("Please approve the transaction")
+    setError("")
+    transactionSend.on("transactionHash", hash => {
+      setWaiting(waitingForConfirmationYouCanLeave)
+    }).on("receipt", async (receipt) => {
+      setWaiting("Refreshing status")
+      await datastore.getData({id: "isMarketApprovedForToken", kind: "web3Stuff", overrideCache: true})
+      setWaiting("")
+      resolve()
+    }).on("error", (error, receipt) => {
+      console.log(error, receipt)
+      setWaiting("")
+      setError("Error approving market contract")
+      resolve()
+    })
+  })
+  await transactionPromise
+}
+
+var TextWithHelpTooltip = props => {
+  // Uses invisible spacer -- option-space on mac.
+  var tooltip = <>
+    <StatefulTooltip
+      content={() => props.tooltipMessage}
+      showArrow
+      placement={PLACEMENT.top}>
+      <div style={{display: "inline-flex", alignItems: "center"}}>
+        {" "}
+        <IoMdInformationCircleOutline size={props.size} style={{color: THEME.colors.colorSecondary, marginLeft: "3px"}}/>
+      </div>
+    </StatefulTooltip>
+  </>
+  var component = <>
+      {props.text}
+      {tooltip}
+
+  </>
+  return component
+}
+const waitingForConfirmationYouCanLeave = <>
+  <TextWithHelpTooltip
+    tooltipMessage={"The blockchain is processing your transaction(s). You can leave the page if necessary."}
+    text={"Waiting for confirmation"}/>
+</>
+
+var buyItemFlow = async ({setWaiting, setError}, {itemId, priceBN}) => {
+  var userAddress = await datastore.getData({id: "userAddress", kind: "web3Stuff"})
+
+  setWaiting("Please approve the transaction")
+  var transactionPromise = new Promise((resolve, reject) => {
+    var transactionSend = datastore.buyToken({tokenId: itemId, userAddress, price: priceBN})
+    transactionSend.on("transactionHash", hash => {
+      setWaiting(waitingForConfirmationYouCanLeave)
+    }).on("receipt", async (receipt) => {
+      setWaiting("Refreshing item")
+      await datastore.getData({id: itemId, kind: "item", overrideCache: true})
+      setWaiting("")
+      resolve()
+    }).on("error", (error, receipt) => {
+      console.log(error, receipt)
+      setWaiting("")
+      setError("Error buying item")
+      resolve()
+    })
+  })
+
+  await transactionPromise
+}
+
+var setMarketInfoFlow = async ({setWaiting, setError}, {isForSale, priceBN, itemId}) => {
+  var userAddress = await datastore.getData({id: "userAddress", kind: "web3Stuff"})
+  var approvalStatus = await datastore.getData({id: "isMarketApprovedForToken", kind: "web3Stuff"})
+
+  var marketApprovePromise
+  if (isForSale && !approvalStatus) {
+    marketApprovePromise = setMarketApprovedForTokenFlow(true, () => null, () => null)
+    var whyBoth = <>
+      <TextWithHelpTooltip
+        tooltipMessage={"The first transaction approves the market contract, the second lists the item"}
+        text={"Please approve both transactions"}/>
+    </>
+    setWaiting(whyBoth)
+  } else {
+    marketApprovePromise = () => true
+    setWaiting("Please approve the transaction")
+  }
+
+  var transactionPromise = new Promise((resolve, reject) => {
+    var transactionSend = datastore.setMarketInfo({tokenId: itemId, userAddress, isForSale, price: priceBN})
+    transactionSend.on("transactionHash", hash => {
+      setWaiting(waitingForConfirmationYouCanLeave)
+    }).on("receipt", async (receipt) => {
+      await marketApprovePromise
+      setWaiting("Refreshing item")
+      await datastore.getData({id: itemId, kind: "item", overrideCache: true})
+      setWaiting("")
+      resolve()
+    }).on("error", (error, receipt) => {
+      console.log(error, receipt)
+      setWaiting("")
+      setError("Error listing on market")
+      resolve()
+    })
+  })
+
+  await transactionPromise
 }
 
 var useGetFromDatastore = ({id, kind, dontUse}) => {
-  var [shouldUpdateCounter, setShouldUpdateCounter] = React.useState(0)
   var [response, setResponse] = React.useState()
 
   var propsGood = id && true
-  // if call datastore function that requires web3 and datastore doesn't have it => error
-  var web3Good = (kind == "item" || kind == "web3Stuff") ? datastore.hasWeb3() : true
-  var shouldRun = propsGood && web3Good && !dontUse
 
+  // update function that doesn't set data if component unmounted
   var isCancelled = false
-  shouldRun && datastore.getData({id, kind, test:true}).then(res => {
-    !isCancelled && setResponse(res)
-  })
-
+  var update = () => {
+    // if call datastore function that requires web3 and datastore doesn't have it => error
+    var web3Good = (kind == "item" || kind == "web3Stuff") ? datastore.hasWeb3() : true
+    web3Good && datastore.getData({id, kind}).then(res => {
+      !isCancelled && setResponse(res)
+    })
+  }
   React.useEffect(() => {
-    if (shouldRun) {
-      var cancel = () => {isCancelled = true}
-      return cancel
-    }
-  })
+    var cancel = () => {isCancelled = true}
+    return cancel
+  }, [])
 
-  // console.log("useGetFromDatastore hook firing")
+  // first update
+  React.useEffect(() => {
+    if (propsGood && !dontUse) {
+      update()
+    }
+  }, [id, kind, dontUse])
 
   // update on item changes
   React.useEffect(() => {
     if (propsGood && !dontUse) {
-      var callback = () => {
-        setShouldUpdateCounter(shouldUpdateCounter + 1)
-      }
-      var subscriptionId = datastore.addDataSubscription({kind, id, callback})
+      var subscriptionId = datastore.addDataSubscription({kind, id, callback: update})
       var cancel = () => datastore.removeDataSubscription({kind, id, subscriptionId})
       return cancel
     }
-  })
+  }, [id, kind, dontUse])
 
   // update on web3 changes
   React.useEffect(() => {
-    if (!dontUse) {
-      var callback = () => {
-        setShouldUpdateCounter(shouldUpdateCounter + 1)
-      }
-      var subscriptionId = datastore.addDataSubscription({kind:"web3Stuff",id:"web3", callback})
+    if (propsGood && !dontUse) {
+      var subscriptionId = datastore.addDataSubscription({kind:"web3Stuff",id:"web3", callback: update})
       var cancel = () => datastore.removeDataSubscription({kind:"web3Stuff",id:"web3", subscriptionId})
       return cancel
     }
-  })
+  }, [id, kind, dontUse])
 
-  return dontUse ? null : (response || datastore.nullType[kind])
+  return dontUse ? null : (response != undefined ? response : datastore.nullType[kind])
 }
 
 
@@ -781,7 +930,7 @@ var UserProfile = props => {
   var allFieldsValid = (email ? emailValid : true) && name
 
   var web3 = useGetFromDatastore({kind: "web3Stuff", id: "web3"})
-  var submit = async () => {
+  var signAndUpdate = async () => {
     var validUntil = Math.floor(Date.now()/1000) + 120
     var signature
     var message = `I'm updating my preferences on Polytope with the username ${name} and the email ${email}. This request is valid until ${validUntil}`
@@ -820,7 +969,7 @@ var UserProfile = props => {
     </div>
     <div style={{display: "grid", gridTemplateColumns: "auto auto", columnGap: "15px"}}>
       <Button kind={KIND.secondary} size={SIZE.compact} onClick={() => setIsEditing(false)}>Cancel</Button>
-      <Button kind={KIND.primary} size={SIZE.compact} onClick={submit} disabled={!allFieldsValid}>Submit</Button>
+      <Button kind={KIND.primary} size={SIZE.compact} onClick={signAndUpdate} disabled={!allFieldsValid}>Submit</Button>
     </div>
   </>
   var waitingHtml = <>
@@ -830,6 +979,37 @@ var UserProfile = props => {
     <LabelSmall>{waiting}</LabelSmall>
   </>
   var nameArea = isEditing ? (waiting ? waitingHtml : editHtml) : nameDisplay
+
+  // Setting market contract approval
+  var viewerIsOwner = userAddress == props.id
+  var approveDisapproveButton
+  var marketContractApprovalArea
+  var [marketWaiting, setMarketWaiting] = React.useState("")
+  var marketIsApproved = useGetFromDatastore({kind: "web3Stuff", id: "isMarketApprovedForToken"})
+  console.log("market approval is", marketIsApproved)
+  if (viewerIsOwner) {
+    var onClick = () => setMarketApprovedForTokenFlow(!marketIsApproved, setMarketWaiting, () => null)
+    approveDisapproveButton = <>
+      <Caption2 style={{textAlign: "left"}}>
+        {marketIsApproved ? "Disable trading items on the market" : "Enable trading items on the market"}
+      </Caption2>
+      <Button kind={KIND.primary} size={SIZE.compact} onClick={onClick}>
+        {marketIsApproved ? "Revoke Market Access" : "Grant Market Access"}
+      </Button>
+    </>
+    var marketWaitingArea = <>
+      <div style={{display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0px 0px 3px #ccc", borderRadius: "15px", padding: THEME.sizing.scale600}}>
+        <Spinner size={48}/>
+        <LabelLarge style={{marginLeft: THEME.sizing.scale600}}>
+          {marketWaiting}
+        </LabelLarge>
+      </div>
+    </>
+    marketContractApprovalArea = <>
+      {marketWaiting ? marketWaitingArea : approveDisapproveButton}
+    </>
+  }
+
 
   // setting window title
   if (name) {document.title = `Polytope | ${name}`}
@@ -844,6 +1024,7 @@ var UserProfile = props => {
           <LabelSmall style={{overflow: "auto"}} color={["contentSecondary"]}>
             {props.id}
           </LabelSmall>
+          {marketContractApprovalArea}
         </div>
       </div>
       <div style={{position: "relative"}}>
@@ -1163,37 +1344,24 @@ var Listing = props => {
   var allFieldsValid = priceValid
   var viewerIsOwner = item.ownerId == userAddress
   var isForSale = item.isForSale
-  // for both listing and delisting
-  var setMarketInfoFlow = async (isForSale, price) => {
-    setWaiting("Please approve the transaction")
-    var setPromise = datastore.setMarketInfo({tokenId: item.id, userAddress, isForSale, price: priceBN})
-    setPromise.on("transactionHash", hash => {
-      setWaiting("Waiting for transaction confirmations")
-    }).on("receipt", receipt => {
-      console.log(receipt)
-      setWaiting("Refreshing item")
-      datastore.getData({id: item.id, kind: "item", overrideCache: true}).then(() => setWaiting(""))
-    }).on("error", (error, receipt) => {
-      setWaiting("")
-      console.log(error, receipt)
-    })
-  }
 
+  var onClickViewer = () => buyItemFlow({setWaiting, setError: () => null}, {itemId: item.id, priceBN: BigNumber(item.price)})
   var buyArea = <>
       <div style={{display: "flex", alignItems: "center", justifyContent: "space-around", border: "1px solid #000"}}>
         <LabelLarge>{isForSale ? weiStringToEthString(item.price) + " ETH" : "Not For Sale"}</LabelLarge>
       </div>
-      {isForSale && <Button kind={KIND.primary} size={SIZE.default}>Trade</Button>}
+      {isForSale && <Button kind={KIND.primary} size={SIZE.default} onClick={onClickViewer}>Trade</Button>}
   </>
+  var onClickOwner = () => setMarketInfoFlow({setWaiting, setError: () => null}, {isForSale: !isForSale, priceBN, itemId: item.id})
   var setNotForSaleArea = <>
       <div style={{display: "flex", alignItems: "center", justifyContent: "space-around", border: "1px solid #000"}}>
         <LabelLarge>{"Listed for " + weiStringToEthString(item.price) + " ETH"}</LabelLarge>
       </div>
-      <Button kind={KIND.primary} size={SIZE.default} onClick={() => setMarketInfoFlow(false)}>Remove from market</Button>
+      <Button kind={KIND.primary} size={SIZE.default} onClick={onClickOwner}>Remove from market</Button>
   </>
   var setForSaleArea = <>
     <Input size={SIZE.default} endEnhancer={"ETH"} onChange={e => setPrice(e.target.value)} error={price && !priceValid}></Input>
-    <Button style={{marginLeft: THEME.sizing.scale600}} kind={KIND.primary} size={SIZE.default} disabled={!allFieldsValid} onClick={() => setMarketInfoFlow(true, price)}>List on market</Button>
+    <Button style={{marginLeft: THEME.sizing.scale600}} kind={KIND.primary} size={SIZE.default} disabled={!allFieldsValid} onClick={onClickOwner}>List on market</Button>
   </>
   var waitingArea = <>
     <div style={{display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #000"}}>
@@ -2508,7 +2676,7 @@ var PublishItemPanel = props => {
       setWaiting("Please approve the mint transaction")
       var mintPromise = datastore.mintToken({tokenId: blocksHash, metadataHash, userAddress})
       mintPromise.on("transactionHash", hash => {
-        setWaiting("Waiting for transaction confirmations")
+        setWaiting("Waiting for confirmations")
       }).on("receipt", receipt => {
         setSuccess({blocksHash, transactionHash: receipt.transactionHash})
       }).on("error", (error, receipt) => {
