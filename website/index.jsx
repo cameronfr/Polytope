@@ -727,12 +727,12 @@ var setMarketInfoFlow = async ({setWaiting, setError}, {isForSale, priceBN, item
     var whyBoth = <>
       <TextWithHelpTooltip
         tooltipMessage={"The first transaction approves the market contract, the second lists the item"}
-        text={"Please approve both transactions"}/>
+        text={"Please approve both market transactions"}/>
     </>
     setWaiting(whyBoth)
   } else {
     marketApprovePromise = () => true
-    setWaiting("Please approve the transaction")
+    setWaiting("Please approve the market transaction")
   }
 
   var transactionPromise = new Promise((resolve, reject) => {
@@ -2321,7 +2321,7 @@ class VoxelEditor extends React.Component {
     return (
       <div style={{width: "100%", height:"100%"}}>
         <div style={{display: "flex", padding: THEME.sizing.scale1400, boxSizing: "border-box", height: "100%", minHeight: "400px"}}>
-          <div ref={this.containerRef} style={{flexGrow: "1", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "1", minWidth: "200px"/*, maxWidth: "780px", maxHeight: "610px"*/}}>
+          <div ref={this.containerRef} style={{flexGrow: "1", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "unset", minWidth: "200px"/*, maxWidth: "780px", maxHeight: "610px"*/}}>
             <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
             <div style={{position: "absolute", right: "10px", top: "10px"}}>
               <ControlsHelpTooltip hideEditControls={this.state.atPublishDialog} />
@@ -2676,27 +2676,36 @@ var PublishItemPanel = props => {
       await runWithErrMsgAsync(datastore.setItemData({metadata, metadataHash, id: blocksHash}), "Error uploading metadata")
 
       setWaiting("Please approve the mint transaction")
-      var mintPromise = datastore.mintToken({tokenId: blocksHash, metadataHash, userAddress})
-      mintPromise.on("transactionHash", hash => {
-        setWaiting("Waiting for confirmations")
-      }).on("receipt", receipt => {
-        setSuccess({blocksHash, transactionHash: receipt.transactionHash})
-      }).on("error", (error, receipt) => {
-        // since can't see revert message, have to hope these are only errors
-        var error
-        if (receipt && receipt.status != undefined) {
-          var tokenLink = <>
-            <RouterLink style={{textDecoration: "underline", color: "unset"}} to={`/item/${blocksHash}`}>here</RouterLink>
-          </>
-          error = <>Token already exists {tokenLink}!</>
-        } else if (receipt) {
-          error = "Not enough Gas"
-        } else {
-          error = "Error starting contract call" //prob rejected
-        }
-        setNotification(error)
-        setWaiting("")
+
+      var mintTransaction = datastore.mintToken({tokenId: blocksHash, metadataHash, userAddress})
+      var mintPromise = new Promise((resolve, reject) => {
+        mintTransaction.on("transactionHash", hash => {
+          setWaiting("Waiting for confirmations")
+        }).on("receipt", async (receipt) => {
+          resolve(receipt.transactionHash)
+        }).on("error", (error, receipt) => {
+          // since can't see revert message, have to hope these are only errors
+          var error
+          if (receipt && receipt.status != undefined) {
+            var tokenLink = <>
+              <RouterLink style={{textDecoration: "underline", color: "unset"}} to={`/item/${blocksHash}`}>here</RouterLink>
+            </>
+            error = <>Token already exists {tokenLink}!</>
+          } else if (receipt) {
+            error = "Not enough Gas"
+          } else {
+            error = "Error starting contract call" //prob rejected
+          }
+          reject(error)
+        })
       })
+
+      var transactionHash = await mintPromise
+      if (forSale) {
+        await setMarketInfoFlow({setWaiting, setError: () => null}, {isForSale: forSale, priceBN, itemId: blocksHash})
+      }
+      setSuccess({blocksHash, transactionHash})
+
     } catch(e) {
       setNotification(e)
       setWaiting("")
@@ -2740,7 +2749,7 @@ var PublishItemPanel = props => {
       </Caption1>
     </>
 
-  var priceValid = !priceBN.isNaN() && priceBN.gte(0)
+  var priceValid = price && !priceBN.isNaN() && priceBN.gte(0)
   var nameValid = name //name && (/^[a-zA-Z0-9 ]+$/).test(name) // still want emoji
   var descriptionValid = description//name && (/^[a-zA-Z0-9 ]+$/).test(description)
   var allInputValidated = (!forSale || priceValid) && nameValid && descriptionValid
