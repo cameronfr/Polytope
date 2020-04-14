@@ -986,7 +986,6 @@ var UserProfile = props => {
   var marketContractApprovalArea
   var [marketWaiting, setMarketWaiting] = React.useState("")
   var marketIsApproved = useGetFromDatastore({kind: "web3Stuff", id: "isMarketApprovedForToken"})
-  console.log("market approval is", marketIsApproved)
   if (viewerIsOwner) {
     var onClick = () => setMarketApprovedForTokenFlow(!marketIsApproved, setMarketWaiting, () => null)
     approveDisapproveButton = <>
@@ -1242,7 +1241,6 @@ var usePromise = (datastoreCall, shouldRun) => {
 
 var Listing = props => {
   const viewAreaSize = 500
-  const canvasRef = React.useRef()
 
   // Listing details
   React.useEffect(() => {
@@ -1251,25 +1249,30 @@ var Listing = props => {
 
   var item = useGetFromDatastore({id: props.id, kind: "item"})
 
+  var canvasContainerRef = React.useRef()
   // Game setup and destroy
   React.useEffect(() => {
-    console.log("Listing item is", item)
     if (!item.blocks) {return}
     var animationFrameRequestID
     var renderID
     var voxelRenderer
     var setupGame = async () => {
-      voxelRenderer = new VoxelRenderer({pixelRatio:1, canvas:canvasRef.current})
+      // have to make a child because regl destroys the canvas on regl.destroy
+      var canvas = document.createElement('canvas');
+      canvas.style.cssText = "width: 100%; height: 100%;"
+      canvasContainerRef.current.appendChild(canvas)
+      voxelRenderer = new VoxelRenderer({pixelRatio:1, canvas:canvas})
+
       var {blocks} = item
       var gameState = new GameState({blocks})
-      var flyControls = new FlyControls({gameState, domElement: canvasRef.current, interactionDisabled: true})
+      var flyControls = new FlyControls({gameState, domElement: canvas, interactionDisabled: true})
 
       // set initial position
       const lookAtPos = new Vector3(gameState.worldSize.x/2, 10, gameState.worldSize.y/2)
       var orbiter = new AutomaticOrbiter(gameState.camera, {center: lookAtPos.clone(), height: 8, period: 10, radius: 1.2*gameState.worldSize.x/2, lookAtPos})
       orbiter.setRotationToTime(0)
 
-      renderID = voxelRenderer.addTarget({gameState: gameState, element: canvasRef.current})
+      renderID = voxelRenderer.addTarget({gameState: gameState, element: canvas})
       var tick = timestamp => {
         if (document.hasFocus()) {
           voxelRenderer.renderQueue.unshift(renderID)
@@ -1286,7 +1289,6 @@ var Listing = props => {
     setupGame()
     return cleanupGame
   }, [props.id, item])
-  // NOTE: regl destroys the canvas on .destroy, this useEffect won't work as more than a componentDidMount
 
   var owner = useGetFromDatastore({id: item && item.ownerId, kind: "user"})
   var author = useGetFromDatastore({id: item && item.authorId, kind: "user"})
@@ -1300,11 +1302,11 @@ var Listing = props => {
   const blockMargins = 28
 
   var canvasArea = <>
-    <div style={{width: viewAreaSize+"px", height: viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", margin: blockMargins+"px", position: "relative", zIndex: "1"}}>
+    <div style={{width: viewAreaSize+"px", height: viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", margin: blockMargins+"px", position: "relative", zIndex: "1"}} ref={canvasContainerRef}>
       <div style={{position: "absolute", top:"10px", right: "10px"}}>
         <ControlsHelpTooltip hideEditControls/>
       </div>
-      <canvas ref={canvasRef} style={{height: "100%", width: "100%"}}/>
+      {/*Canvas is inserted here*/}
     </div>
   </>
 
