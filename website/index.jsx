@@ -658,7 +658,21 @@ class Datastore {
     await this.apiFetcher.setItemData(itemData)
   }
   async getItemDetails({id}) {
-    await this.apiFetcher.getItemDetails({id})
+    // have to wait for web3 before can call this
+    var call = async () => {
+      var token = await this.getData({kind: "item", id})
+      var tokenExists = (token && (token != "INVALID"))
+      tokenExists && (await this.apiFetcher.getItemDetails({id}))
+    }
+    if (this.hasWeb3()) {
+      call()
+    }
+    else {
+      var subscriptionId = this.addDataSubscription({id: "web3", kind: "web3Stuff", callback: () => {
+        call()
+        this.removeDataSubscription({id: "web3", kind: "web3Stuff", subscriptionId})
+      }})
+    }
   }
   mintToken({tokenId, metadataHash, userAddress}) {
     return this.tokenFetcher.mintToken({tokenId, metadataHash, userAddress, web3: this.cache["web3Stuff"]["web3"].data})
