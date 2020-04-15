@@ -399,8 +399,14 @@ class MarketFetcher {
       fromBlock: 0, // can change this when need pagination
       filter: {} // can filter later
     })
-    var returnValues = events.map(event => ({id: event.tokenId, price: BigNumber(event.price)}))
-    return returnValues
+    var sales = events.map(event => {
+      var eventValues = event.returnValues
+      var id = Web3Utils.padLeft(Web3Utils.toHex(eventValues.tokenId), 256/4)
+      var price = BigNumber(eventValues.price)
+      var sale = {id, price}
+      return sale
+    })
+    return sales
   }
 
 }
