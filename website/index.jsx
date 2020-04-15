@@ -1568,7 +1568,7 @@ var LandingPage = props => {
   return <>
     <div style={{display: "grid", padding: THEME.sizing.scale1400, backgroundColor: backgroundColor}}>
       <DisplaySmall>
-        Create, explore, and trade the next generation of digital items.
+        Create, explore, and trade a new generation of digital items.
       </DisplaySmall>
     </div>
     {cardArea}
@@ -1713,11 +1713,11 @@ var Header = props => {
         </StyledNavigationItem>
       </StyledNavigationList>
       <StyledNavigationList $align={ALIGN.center}>
-        <StyledNavigationItem style={{width: "100%",  minWidth: "200px", maxWidth: "600px"}}>
+        {/*<StyledNavigationItem style={{width: "100%",  minWidth: "200px", maxWidth: "600px"}}>
           <form onSubmit={() => onSearchSubmit} style={{margin:"0"}}>
             {searchBar}
           </form>
-        </StyledNavigationItem>
+        </StyledNavigationItem>*/}
       </StyledNavigationList>
       <StyledNavigationList $align={ALIGN.right}>
         <StyledNavigationItem style={{paddingLeft: "0px"}}>
