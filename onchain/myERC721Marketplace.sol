@@ -23,6 +23,10 @@ contract Market {
   uint256 private feePower = 5; // 1.0/(2^5) = 0.03125 = ~3%
   address payable private feeRecipient = 0xf91B98fe5Cc2a590C5d3DA72324f8A52F241D96B;
 
+  // Events
+  event TokenListed(uint256 tokenId, uint256 price);
+
+
   constructor () public {
   }
 
@@ -32,6 +36,8 @@ contract Market {
 
     tokenIsForSale[tokenId] = tokenOwner;
     tokenPrice[tokenId] = price;
+
+    emit TokenListed(tokenId, price);
   }
 
   function delist(uint256 tokenId) external {
