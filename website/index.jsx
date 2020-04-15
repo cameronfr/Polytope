@@ -91,13 +91,13 @@ import RandomGen from "random-seed"
 var APIEndpoint = "https://app.polytope.space"
 const tokenContractABI = require("./tokenABI.json")
 const marketContractABI = require("./marketABI.json")
-var tokenContractAddress = ""
-var marketContractAddress = ""
+var tokenContractAddress = "0xe8AA46D8d5565CB7F2F3D9686B0c77f3a6813504"
+var marketContractAddress = "0x301D5e7C1c5e97C2ac81ce979c6c6a9EC87217c8"
 var globalDebug = false
 if (process.env.NODE_ENV == "development") {
   APIEndpoint = "http://localhost:5000"
   tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe"
-  marketContractAddress = "0x30b726909A4E784524fdb1ada5358c7d862c41b5"
+  marketContractAddress = "0xFFA62F9f2Bf85F3fF746194C163d681f4ce686B4"
   globalDebug = true
 }
 const mintFee = 5000000000000000
@@ -326,7 +326,7 @@ class TokenFetcher {
     var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
     var send = tokenContract.methods.mint(userAddress, tokenId, metadataHash).send({
       from: userAddress,
-      gas: 400000,
+      gas: 250000,
       value: mintFee,
     })
     return send
@@ -390,6 +390,17 @@ class MarketFetcher {
       value: price
     })
     return send
+  }
+
+  async getRecentSales({web3}) {
+    // cheap and expensive can be manipulated by buying your own order, only costs 3%
+    var marketContract = new web3.eth.Contract(marketContractABI, marketContractAddress);
+    var events = await marketContract.getPastEvents("TokenPurchased", {
+      fromBlock: 0, // can change this when need pagination
+      filter: {} // can filter later
+    })
+    var returnValues = events.map(event => ({id: event.tokenId, price: BigNumber(event.price)}))
+    return returnValues
   }
 
 }
@@ -503,6 +514,18 @@ class Datastore {
     } else if (type == "popular") {
       if (this.sortingsCache[type]) {return this.sortingsCache[type]}
       var ids = await this.apiFetcher.getPopularItems()
+      this.sortingsCache[type] = ids
+      return ids
+    } else if (type == "cheap" || type == "expensive") {
+      if (this.sortingsCache[type]) {return this.sortingsCache[type]}
+      // TODO: paginate this
+      var tokensAndSellPrice = await this.marketFetcher.getRecentSales({web3: this.cache["web3Stuff"]["web3"].data})
+      if (type == "cheap") {
+          tokensAndSellPrice.sort((a, b) => a.price > b.price)
+      } else if (type == "expensive") {
+          tokensAndSellPrice.sort((a, b) => a.price < b.price)
+      }
+      var ids = tokensAndSellPrice.map(dict => dict.id)
       this.sortingsCache[type] = ids
       return ids
     }
@@ -2321,7 +2344,7 @@ class VoxelEditor extends React.Component {
     return (
       <div style={{width: "100%", height:"100%"}}>
         <div style={{display: "flex", padding: THEME.sizing.scale1400, boxSizing: "border-box", height: "100%", minHeight: "400px"}}>
-          <div ref={this.containerRef} style={{flexGrow: "1", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "unset", minWidth: "200px"/*, maxWidth: "780px", maxHeight: "610px"*/}}>
+          <div ref={this.containerRef} style={{flexGrow: "1", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "unset", minWidth: "200px", maxWidth: "810px", maxHeight: "610px"}}>
             <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
             <div style={{position: "absolute", right: "10px", top: "10px"}}>
               <ControlsHelpTooltip hideEditControls={this.state.atPublishDialog} />
