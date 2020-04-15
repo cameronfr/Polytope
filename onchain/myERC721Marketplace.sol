@@ -31,6 +31,10 @@ contract Market {
   constructor () public {
   }
 
+  function name() external view returns (string memory) {
+      return _name;
+  }
+
   function list(uint256 tokenId, uint256 price) external {
     address tokenOwner = tokenContract.ownerOf(tokenId);
     require(msg.sender == tokenOwner, "Invalid access");
