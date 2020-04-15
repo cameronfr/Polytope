@@ -39,7 +39,7 @@ contract ERC721 is Context, ERC165, IERC721, IERC721Metadata, IERC721Enumerable 
     // Metadata fields
     string private _name = "Polytope";
     string private constant _symbol = "POLYTOPE";
-    string private constant _baseURI = "https://app.polytope.space/token/";
+    string private constant _baseURI = "https://app.polytope.space/tokenInfo/";
     // Mapping from tokenId to tokenMetadataHash. Not necessarily unique.
     mapping (uint256 => uint256) private _tokenMetadataHashes;
 
@@ -88,7 +88,7 @@ contract ERC721 is Context, ERC165, IERC721, IERC721Metadata, IERC721Enumerable 
     }
 
     function tokenURI(uint256 _tokenId) external view returns (string memory) {
-      return string(abi.encodePacked(_baseURI, _uint2hex(_tokenId), ".json"));
+      return string(abi.encodePacked(_baseURI, "0x", _uint2hex(_tokenId), ".json"));
     }
 
     function tokenMetadataHash(uint256 _tokenId) external view returns (uint256) {
