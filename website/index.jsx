@@ -1379,7 +1379,7 @@ var Listing = props => {
   var [price, setPrice] = React.useState()
   var [waiting, setWaiting] = React.useState()
   var priceBN = ethStringToWei(price)
-  var priceValid = !priceBN.isNaN() && priceBN.gte(0)
+  var priceValid = !priceBN.isNaN() && priceBN.gt(0)
   var allFieldsValid = priceValid
   var viewerIsOwner = item.ownerId == userAddress
   var isForSale = item.isForSale
@@ -1513,7 +1513,7 @@ var LandingPage = props => {
   var moreButton = <>
     <div style={{display: "inline", textDecoration: "underline", color: "white", cursor: "pointer"}} onClick={() => setShowMoreBuiltWith(true)}>more</div>
   </>
-  var expandedMore = <> web3, reach-router, bignumber.js, scijs-ndarray, three, babel, parcel, react-icons, Wolfram's Icosahedron, and Island Joy 16. </>
+  var expandedMore = <> web3, reach-router, bignumber.js, scijs-ndarray, three, babel, parcel, react-icons, wolframalpha icosahedron, and island joy 16. </>
   var moreArea = showMoreBuiltWith ? expandedMore : moreButton
   const logoImage = require('./logo.svg');
   const licenseLink = (text, link) => <StyledLink style={{color: "white"}} href={link}>{text}</StyledLink>
@@ -2797,7 +2797,7 @@ var PublishItemPanel = props => {
         For sale
       </Checkbox>
       <div style={{visibility: forSale ? "unset" : "hidden"}}>
-        <Input size={SIZE.compact} placeholder={"price"} onChange={e => setPrice(e.target.value)} endEnhancer={"ETH"} error={price && !priceValid} inputMode={"decimal"} />
+        <Input size={SIZE.compact} placeholder={"price"} value={price} onChange={e => setPrice(e.target.value)} endEnhancer={"ETH"} error={price && !priceValid} inputMode={"decimal"} />
       </div>
     </div>
   </>
@@ -2819,7 +2819,7 @@ var PublishItemPanel = props => {
       See a preview of your item below
     </Caption1>
     <div style={{display: "flex", justifyContent: "center", marginBottom: "1em"}}>
-      <ListingCard listingData={{blocks: props.blocks, name: name, price: price, notForSale: !forSale, description: description}} voxelRenderer={voxelRenderer} imageSize={220} autoOrbit />
+      <ListingCard listingData={{blocks: props.blocks, name: name, price: ethStringToWei(price), isForSale: forSale, description: description, ownerId: userAddress}} voxelRenderer={voxelRenderer} imageSize={220} autoOrbit />
     </div>
     <div style={{display: "grid", gridAutoColumn: "1fr", gridAutoFlow: "column", columnGap: THEME.sizing.scale600}}>
       <Button size={SIZE.compact} kind={KIND.secondary} onClick={props.onGoBack}> Go back </Button>
@@ -3269,7 +3269,8 @@ class AutomaticOrbiter {
   }
 
   setRotationToTime(time) {
-    var rotationTime = 2 * (Math.PI/this.period) * time
+    var initialOffset = 3 * Math.PI / 2.0 // s.t. circle starts at x=0, z=-1
+    var rotationTime = 2 * (Math.PI/this.period) * time + initialOffset
     var newPos = (new Vector3(Math.cos(rotationTime)*this.radius, this.height, Math.sin(rotationTime)*this.radius)).add(this.center)
     this.camera.position.set(newPos.x, newPos.y, newPos.z)
     this.camera.lookAt(this.lookAtPos)
