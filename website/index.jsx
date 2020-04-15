@@ -200,7 +200,7 @@ class APIFetcher {
     var call = this.callEndpoint("/getItemData", [id], "POST").then(res => res.json())
     var res = await call
     if (!res[id] || !res[id][0]) {throw "Item data not found on server"}
-    var rawData = res[id][0]
+    var rawData = res[id] // list of matching items
 
     return rawData
   }
@@ -541,18 +541,26 @@ class Datastore {
     // return (await this.apiFetcher.generateItemData({id})) //for testing
     var web3 = this.cache["web3Stuff"]["web3"].data
 
-    var apiCall = this.apiFetcher.getItem({id})
+    var apiCall = this.apiFetcher.getItem({id}) // gives list of matching items in DB. could key by metadatahash but would increase fetch time
     var tokenCall = this.tokenFetcher.finishProcesing({token: {id}, web3})
     var marketCall = this.marketFetcher.getMarketInfo({id, web3})
-    var [apiItem, tokenItem, marketItem] = await Promise.all([apiCall, tokenCall, marketCall])
+    var [apiItems, tokenItem, marketItem] = await Promise.all([apiCall, tokenCall, marketCall])
+    var apiItem
+    apiItems.forEach(item => {
+      var calculatedMetadataHash = keccakUtf8(JSON.stringify(item.metadata, ["name", "description", "blocks"]))
+      var validMetadata = calculatedMetadataHash == tokenItem.metadataHash
+      var calculatedBlocksHash = keccakUtf8(JSON.stringify(item.metadata.blocks))
+      var validBlocks = calculatedBlocksHash == tokenItem.id
+      if (validMetadata && validBlocks) {
+        apiItem = item
+        return
+      }
+    })
+    if (apiItem == undefined) {throw "Server had no items with correct metadata and blocks hash"}
 
     var {name, description, blocks} = apiItem.metadata
     if (blocks.length != (16*16*16*1)) {throw "blocks metadata invalid"}
     // might want other checks like above, goal is that if data that was hashed is different, what shows up on screen in the game should be different.
-    var calculatedMetadataHash = keccakUtf8(JSON.stringify(apiItem.metadata, ["name", "description", "blocks"]))
-    if (calculatedMetadataHash != tokenItem.metadataHash) {throw "metadata hash incorrect"}
-    var calculatedBlocksHash = keccakUtf8(JSON.stringify(blocks))
-    if (calculatedBlocksHash != tokenItem.id) {throw "blocks hash doesn't match token id"}
 
     var processedBlocks = this.processRawBlocks(blocks)
     var item = {
