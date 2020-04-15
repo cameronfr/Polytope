@@ -25,6 +25,7 @@ contract Market {
 
   // Events
   event TokenListed(uint256 tokenId, uint256 price);
+  event TokenPurchased(uint256 tokenId, uint256 price);
 
 
   constructor () public {
@@ -61,6 +62,9 @@ contract Market {
 
     tokenIsForSale[tokenId] = address(0);
     tokenContract.transferFrom(tokenOwner, msg.sender, tokenId);
+
+    emit TokenPurchased(tokenId, price);
+
     feeRecipient.transfer(fee);
     tokenOwnerPayable.transfer(payment); // untrusted
   }
