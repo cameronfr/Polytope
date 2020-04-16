@@ -488,8 +488,8 @@ class Datastore {
       if (subCache[id] && subCache[id][page]) { return subCache[id][page]}
 
       var res = await this.tokenFetcher.getIdsByOwner({id, web3: this.cache["web3Stuff"]["web3"].data})
-      ownerCache[id] = onwerCache[id] || {}
-      ownerCache[id][page] = res
+      subCache[id] = subCache[id] || {}
+      subCache[id][page] = res
       return res
     } else if (type == "new" || type == "old" || type == "random") {
       var subCache = this.sortingsCache[type]
@@ -1107,11 +1107,13 @@ var Listings = props => {
 
   var isWaitingWeb3 = !useGetFromDatastore({kind: "web3Stuff", id: "web3"})
   React.useEffect(() => {
+    var isCancelled = false
     var updateCardIds = async () => {
       var ids = await datastore.getSorting(props.sorting)
-      setCardIds(ids)
+      !isCancelled && setCardIds(ids)
     }
     !isWaitingWeb3 && props.sorting && updateCardIds()
+    return () => {isCancelled = true}
   }, [props.sorting, isWaitingWeb3])
 
   var cards = cardIds.map(id => {
@@ -1519,7 +1521,7 @@ var LandingPage = props => {
   </>
   var instructionsList = <>
     <div style={{display: "grid", rowGap: THEME.sizing.scale800}}>
-      {listRow(1, <>Create your item in the editor.</>, <>Create an item easily in your browser.</>)}
+      {listRow(1, <>Create your item in the editor.</>, <>Create an item easily without leaving the browser.</>)}
       {listRow(2, <>Mint the non-fungible token for your item on the ethereum blockchain.</>, <>No two of the <StyledLink href="http://erc721.org/">ERC721</StyledLink> tokens can have the same arrangement of voxels — the token's id is the keccak hash of the voxel grid.</>)}
       {listRow(3, <>Explore and trade for others' items.</>, <>Browse the listings and move around in any item. Or trade on external markets. </>)}
     </div>
@@ -1573,7 +1575,7 @@ var LandingPage = props => {
       </RouterLink>
   </>
   var buttonArea = <>
-    <div style={{display: "flex", alignItems: "center", justifyContent: "center", margin: THEME.sizing.scale1000}}>
+    <div style={{display: "flex", alignItems: "center", justifyContent: "center", margin: "10px"}}>
       {goButton("Explore Items", "/home")}
       {goButton("Create An Item", "/newItem")}
     </div>
@@ -1596,16 +1598,16 @@ var LandingPage = props => {
         Every item is a 3D scene of 16<div style={{display: "inline", position: "relative", top: "-0.7em", "fontSize": "60%"}}>3</div> voxels that can be entered and explored.
       </HeadingLarge>
       <HeadingLarge style={{margin: "0"}}>
-        How it works:
+        How It Works
       </HeadingLarge>
       {instructionsList}
       <HeadingLarge style={{margin: "0"}}>
-        Get Started:
+        Get Started
       </HeadingLarge>
       {buttonArea}
-      <ParagraphLarge>
-        We are currently in BETA.
-      </ParagraphLarge>
+      <DisplayXSmall color={["colorSecondary"]} style={{textAlign: "center"}}>
+        Polytope's goal is to encourage casual creativity by making creation and the exchange of creations easy.
+      </DisplayXSmall>
     </div>
     {footer}
   </>
@@ -1642,7 +1644,7 @@ var FeedbackButton = props => {
           positive={feedbackSuccess}
           disabled={feedbackSuccess}
           inputRef={inputRef} placeholder={"ideas, problems, questions, etc!"}
-          overrides={{InputContainer: {style: {...unsetBorder, height: "36px", backgroundColor: inputBackgroundColor}}}}
+          overrides={{InputContainer: {style: {...unsetBorder, height: "36px", backgroundColor: inputBackgroundColor, borderRadius: "0px 15px 15px 0px"}}}}
         />
       </div>
     </div>
@@ -1650,7 +1652,7 @@ var FeedbackButton = props => {
   React.useEffect(() => {isExpanded && inputRef.current && inputRef.current.focus()}, [isExpanded])
   var startFeedbackButton = <Button
     size={SIZE.compact} kind={KIND.secondary}
-    style={{color: "black", backgroundColor: "white", width: "180px"}}
+    style={{color: "black", backgroundColor: "white", width: "180px", borderRadius: isHidden ? "15px" : "15px 0px 0px 15px"}}
     onClick={e => {e.preventDefault(); rollout()}}>
     Feedback and Contact
   </Button>
@@ -1679,7 +1681,7 @@ var FeedbackButton = props => {
 
   var submitFeedbackButton = <Button
     size={SIZE.compact} kind={KIND.secondary}
-    style={{color: "black", backgroundColor: "white", width: "180px"}}
+    style={{color: "black", backgroundColor: "white", width: "180px", borderRadius: "15px 0px 0px 15px"}}
     type={"submit"}>
     {feedbackSuccess ? "Submitted" : "Done"}
   </Button>
