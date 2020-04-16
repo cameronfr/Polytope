@@ -451,7 +451,7 @@ class Datastore {
       this.pendingEndpointCalls[kind][id] = call
       data = await call
     } else if (kind == "item") {
-      var call = this.getItem({id}).catch(e => {console.log(e); return "INVALID"})
+      var call = this.getItem({id}).catch(e => {console.log(`Invalid token ${id}`); return "INVALID"})
       this.pendingEndpointCalls[kind][id] = call
       data = await call
     } else if (kind == "web3Stuff") {
@@ -1218,7 +1218,7 @@ var ListingCard = props => {
     inner = cardInterior
   }
 
-  return <>
+  var card = <>
     <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", backfaceVisibility: "hidden", position: "relative", zIndex: "1", width: "min-content",/* width: imageSize+"px",*/ position: "relative", backgroundColor: "eee"}}>
       <div style={{position: "absolute", right: "10px", top: "10px"}}>
         <UserAvatar id={ownerId} size={35} />
@@ -1226,6 +1226,8 @@ var ListingCard = props => {
       {inner}
     </div>
   </>
+
+  return (item != "INVALID" ? card : null)
 }
 
 var AvatarAndName = props => {
@@ -1233,7 +1235,7 @@ var AvatarAndName = props => {
   var user = useGetFromDatastore({id, kind:"user"})
 
   return (
-      <div style={{display: "flex", alignItems: "center"}}>
+      <div style={{display: "flex", alignItems: "center", whiteSpace: "nowrap"}}>
         <div style={{paddingRight: "10px"}}>
           <UserAvatar size={35} id={id}/>
         </div>
@@ -1369,7 +1371,7 @@ var Listing = props => {
       <LabelLarge style={{overflow: "auto", paddingLeft: "2px", marginTop: "25px", minWidth: "0"}} color={["contentSecondary"]}>
         {props.id}
       </LabelLarge>
-      <div style={{display: "grid", gridTemplateColumns: "repeat(2, min-content)", alignItems: "center", marginTop: "25px", paddingLeft: "2px", rowGap: "20px"}}>
+      <div style={{display: "grid", gridTemplateColumns: "min-content 1fr", alignItems: "center", marginTop: "25px", paddingLeft: "2px", rowGap: "20px", overflow: "hidden", textOverflow: "ellipsis"}}>
         <LabelLarge color={["colorSecondary"]} style={{marginRight: "10px", whiteSpace: "nowrap"}}>
           {"Owner is"}
         </LabelLarge>
@@ -1491,7 +1493,7 @@ var LandingPage = props => {
   var cardArea = isWaitingWeb3 ? web3WaitingScreen : listingsScreen
 
   // List
-  const listItemStyle = {lineHeight: "60px", margin: "0"}
+  const listItemStyle = {padding: "10px 0px", margin: "0"}
   var numberBox = number => <>
     <HeadingLarge style={{height: "60px", margin: "0", display: "flex", alignItems:"center" }}>
       <div style={{display: "grid", justifyContent: "center", alignContent: "center", backgroundColor: "white", boxShadow: "0px 0px 3px #ccc", width: "1.5em", height: "1.5em", borderRadius: "10%"}}>
@@ -1499,26 +1501,22 @@ var LandingPage = props => {
       </div>
     </HeadingLarge>
   </>
-  var listRow = (num, content) => <>
+  var listRow = (num, bigText, caption) => <>
     <div style={{display: "flex", alignItems: "start", justifyContent: "start"}}>
-      {numberBox(num)} <div style={{marginLeft: "1em"}}>{content}</div>
+      {numberBox(num)}
+      <div style={{marginLeft: "1em"}}>
+        <HeadingMedium style={listItemStyle} color={["contentSecondary"]}>
+          {bigText}
+        </HeadingMedium>
+        <Caption2>{caption}</Caption2>
+      </div>
     </div>
   </>
   var instructionsList = <>
     <div style={{display: "grid", rowGap: THEME.sizing.scale800}}>
-      {listRow(1, <HeadingMedium style={listItemStyle} color={["contentSecondary"]}>
-          Create your item in our editor.
-      </HeadingMedium> )}
-      {listRow(2, <HeadingMedium style={listItemStyle} color={["contentSecondary"]}>
-        <div>
-          Mint the non-fungible token for your item on the ethereum blockchain.
-        </div>
-      </HeadingMedium> )}
-      {listRow(3, <HeadingMedium style={listItemStyle} color={["contentSecondary"]}>
-        <div>
-          Explore and trade for others' items.
-        </div>
-      </HeadingMedium> )}
+      {listRow(1, <>Create your item in the editor.</>, <>Create an item easily in your browser.</>)}
+      {listRow(2, <>Mint the non-fungible token for your item on the ethereum blockchain.</>, <>No two of the <StyledLink href="http://erc721.org/">ERC721</StyledLink> tokens can have the same arrangement of voxels — the token's id is the keccak hash of the voxel grid</>)}
+      {listRow(3, <>Explore and trade for others' items.</>, <>Browse the listings and move around in any item. Or trade on external markets. </>)}
     </div>
   </>
 
@@ -1592,12 +1590,20 @@ var LandingPage = props => {
       <HeadingLarge color={["colorSecondary"]} style={{margin: "0"}}>
         Every item is a 3D scene of 16<div style={{display: "inline", position: "relative", top: "-0.7em", "fontSize": "60%"}}>3</div> voxels that can be entered and explored.
       </HeadingLarge>
+      <HeadingLarge style={{margin: "0"}}>
+        How it works:
+      </HeadingLarge>
       {instructionsList}
       <HeadingLarge style={{margin: "0"}}>
         Get Started:
       </HeadingLarge>
       {buttonArea}
-      An item's token on the blockchain is irreversibly tied to the item's blocks, such that no two of the <StyledLink href="http://erc721.org/">erc721</StyledLink> tokens can have the same arrangement of blocks. Specifically, the tokenId on the blockchain is equal to the sha3 hash of an item's blocks. We are currently in BETA.
+      <ParagraphLarge>
+
+      </ParagraphLarge>
+      <ParagraphLarge>
+        We are currently in BETA.
+      </ParagraphLarge>
     </div>
     {footer}
   </>
@@ -1622,6 +1628,7 @@ var FeedbackButton = props => {
   }
 
   var inputBackgroundColor = (feedbackSuccess == null) ? "rgb(238, 238, 238)" : (feedbackSuccess ? "rgb(158, 226, 184)" : "rgb(251, 220, 230)")
+  const unsetBorder = {borderLeftStyle: "unset", borderBottomStyle: "unset", borderTopStyle: "unset", borderRightStyle: "unset"} // for silencing warning about "border: unset"
   var feedbackInput = <>
     <div style={{transition: "width " + 0.2 + "s ease-in-out", width: isExpanded ? "350px" : "0px"}}>
       <div style={{display: isHidden ? "none" : "unset"}}>
@@ -1633,7 +1640,7 @@ var FeedbackButton = props => {
           positive={feedbackSuccess}
           disabled={feedbackSuccess}
           inputRef={inputRef} placeholder={"ideas, problems, etc"}
-          overrides={{InputContainer: {style: {borderStyle: "unset", height: "36px", backgroundColor: inputBackgroundColor}}}}
+          overrides={{InputContainer: {style: {...unsetBorder, height: "36px", backgroundColor: inputBackgroundColor}}}}
         />
       </div>
     </div>
@@ -1795,7 +1802,7 @@ class VoxelRenderer {
 
     this.regl = Regl({
       canvas: this.canvas,
-      extensions: ["OES_texture_float", 'EXT_shader_texture_lod', "OES_standard_derivatives"],
+      extensions: ['EXT_shader_texture_lod'],
       onDone: function (err, regl) {
         if (err) {
           console.log(err)
@@ -1815,7 +1822,6 @@ class VoxelRenderer {
 
     const fragmentShader = `
       #extension GL_EXT_shader_texture_lod : enable
-      #extension GL_OES_standard_derivatives : enable
 
       precision mediump float;
       // precision highp float;
