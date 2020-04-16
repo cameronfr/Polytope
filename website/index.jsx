@@ -1390,7 +1390,7 @@ var Listing = props => {
       <LabelLarge color={["colorSecondary"]} style={{whiteSpace: "nowrap", textAlign: "left",  marginTop: "25px"}}>
         {dateString}
       </LabelLarge>
-      <LabelLarge style={{marginTop: "25px", paddingLeft: "2px", lineHeight: "2em"}}>
+      <LabelLarge style={{marginTop: "25px", paddingLeft: "2px", lineHeight: "2em", fontWeight: "400"}}>
         {item.description}
       </LabelLarge>
     </div>
@@ -1606,7 +1606,7 @@ var LandingPage = props => {
       </HeadingLarge>
       {buttonArea}
       <DisplayXSmall color={["colorSecondary"]} style={{textAlign: "center"}}>
-        Polytope's goal is to encourage casual creativity by making creation and the exchange of creations easy.
+        Polytope's mission is to encourage casual creativity by making creation and the exchange of creations easy.
       </DisplayXSmall>
     </div>
     {footer}
