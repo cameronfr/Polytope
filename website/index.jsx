@@ -365,7 +365,7 @@ class MarketFetcher {
     return {isForSale, price}
   }
 
-  setMarketInfo({web3, tokenId, userAddress, isForSale, price}) {
+  setMarketInfo({web3, tokenId, userAddress, isForSale, priceBN}) {
     var marketContract = new web3.eth.Contract(marketContractABI, marketContractAddress);
     var send
     if (!isForSale) {
@@ -374,7 +374,7 @@ class MarketFetcher {
         gas: 50000,
       })
     } else if (isForSale) {
-      send = marketContract.methods.list(tokenId, price).send({
+      send = marketContract.methods.list(tokenId, priceBN.toString()).send({
         from: userAddress,
         gas: 100000
       })
@@ -382,12 +382,12 @@ class MarketFetcher {
     return send
   }
 
-  buyToken({web3, tokenId, price, userAddress}) {
+  buyToken({web3, tokenId, priceBN, userAddress}) {
     var marketContract = new web3.eth.Contract(marketContractABI, marketContractAddress);
     var send = marketContract.methods.buyFungible(tokenId).send({
       from: userAddress,
       gas: 400000,
-      value: price
+      value: priceBN.toString()
     })
     return send
   }
@@ -683,15 +683,15 @@ class Datastore {
   getUserAddress() {
     return this.tokenFetcher.getUserAddress({web3: this.cache["web3Stuff"]["web3"].data})
   }
-  setMarketInfo({tokenId, userAddress, isForSale, price}) {
-    return this.marketFetcher.setMarketInfo({tokenId, userAddress, isForSale, price, web3: this.cache["web3Stuff"]["web3"].data})
+  setMarketInfo({tokenId, userAddress, isForSale, priceBN}) {
+    return this.marketFetcher.setMarketInfo({tokenId, userAddress, isForSale, priceBN, web3: this.cache["web3Stuff"]["web3"].data})
   }
   setMarketApprovedForToken({approved, userAddress}) {
     var send = this.tokenFetcher.setApprovedForAll({approved, address: marketContractAddress, userAddress, web3: this.cache["web3Stuff"]["web3"].data})
     return send
   }
-  buyToken({userAddress, tokenId, price}) {
-    var send = this.marketFetcher.buyToken({userAddress, tokenId, price, web3: this.cache["web3Stuff"]["web3"].data})
+  buyToken({userAddress, tokenId, priceBN}) {
+    var send = this.marketFetcher.buyToken({userAddress, tokenId, priceBN, web3: this.cache["web3Stuff"]["web3"].data})
     return send
   }
 }
@@ -753,7 +753,7 @@ var buyItemFlow = async ({setWaiting, setError}, {itemId, priceBN}) => {
 
   setWaiting("Please approve the transaction")
   var transactionPromise = new Promise((resolve, reject) => {
-    var transactionSend = datastore.buyToken({tokenId: itemId, userAddress, price: priceBN})
+    var transactionSend = datastore.buyToken({tokenId: itemId, userAddress, priceBN})
     transactionSend.on("transactionHash", hash => {
       setWaiting(waitingForConfirmationYouCanLeave)
     }).on("receipt", async (receipt) => {
@@ -791,7 +791,7 @@ var setMarketInfoFlow = async ({setWaiting, setError}, {isForSale, priceBN, item
   }
 
   var transactionPromise = new Promise((resolve, reject) => {
-    var transactionSend = datastore.setMarketInfo({tokenId: itemId, userAddress, isForSale, price: priceBN})
+    var transactionSend = datastore.setMarketInfo({tokenId: itemId, userAddress, isForSale, priceBN})
     transactionSend.on("transactionHash", hash => {
       setWaiting(waitingForConfirmationYouCanLeave)
     }).on("receipt", async (receipt) => {
