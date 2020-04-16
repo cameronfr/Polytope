@@ -1,5 +1,6 @@
 # Polytope
 
-- website automatically built using workflow to gh-pages branch, served using Github pages
-- server side stuff happening on Google cloud functions
-- blockchain stuff happening with contracts (onchain folder)
+An experiment casual creativity.
+
+### Development Details
+- Flask server and Parcel node app automatically built and made live when pushed to master. Might have to clear cache in cloudflare. Contracts deployed manually via Remix IDE.
