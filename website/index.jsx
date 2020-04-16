@@ -481,16 +481,19 @@ class Datastore {
   async getSorting({type, id, page, pageSize}) {
     pageSize = pageSize || 50
     page = page || 0
-    this.sortingsCache = this.sortingsCache || {byOwner: {}}
+    this.sortingsCache = this.sortingsCache || {byOwner: {}, new: {}, old: {}, random: {}, popular: {}, cheap: {}, expensive: {}}
 
     if (type == "byOwner") {
-      if (this.sortingsCache["byOwner"][id]) {return this.sortingsCache["byOwner"][id]}
+      var subCache = this.sortingsCache["byOwner"]
+      if (subCache[id] && subCache[id][page]) { return subCache[id][page]}
 
       var res = await this.tokenFetcher.getIdsByOwner({id, web3: this.cache["web3Stuff"]["web3"].data})
-      this.sortingsCache["byOwner"][id] = res
+      ownerCache[id] = onwerCache[id] || {}
+      ownerCache[id][page] = res
       return res
     } else if (type == "new" || type == "old" || type == "random") {
-      if (this.sortingsCache[type]) {return this.sortingsCache[type]}
+      var subCache = this.sortingsCache[type]
+      if (subCache[page]) {return subCache[page]}
 
       var numTokens = this.numTokens || await this.tokenFetcher.numTokens({web3: this.cache["web3Stuff"]["web3"].data})
       this.numTokens = numTokens
@@ -515,15 +518,15 @@ class Datastore {
         }
       }
       var ids = await this.tokenFetcher.getIdsByIndexes({web3: this.cache["web3Stuff"]["web3"].data, indexes})
-      this.sortingsCache[type] = ids
+      subCache[page] = ids
       return ids
     } else if (type == "popular") {
-      if (this.sortingsCache[type]) {return this.sortingsCache[type]}
+      if (this.sortingsCache[type][page]) {return this.sortingsCache[type][page]}
       var ids = await this.apiFetcher.getPopularItems()
-      this.sortingsCache[type] = ids
+      this.sortingsCache[type][page] = ids
       return ids
     } else if (type == "cheap" || type == "expensive") {
-      if (this.sortingsCache[type]) {return this.sortingsCache[type]}
+      if (this.sortingsCache[type][page]) {return this.sortingsCache[type][page]}
       // TODO: paginate this
       var tokensAndSellPrice = await this.marketFetcher.getRecentSales({web3: this.cache["web3Stuff"]["web3"].data})
       if (type == "cheap") {
@@ -532,7 +535,7 @@ class Datastore {
           tokensAndSellPrice.sort((a, b) => a.price < b.price)
       }
       var ids = tokensAndSellPrice.map(dict => dict.id)
-      this.sortingsCache[type] = ids
+      this.sortingsCache[type][page] = ids
       return ids
     }
   }
@@ -1463,10 +1466,11 @@ var LandingPage = props => {
   // can't add [isWaitingWeb3] into React useffect second arg -- doesn't change in func for some reason
   React.useEffect(() => {
     var getDisplayCards = async () => {
-      var tokenIds = await datastore.getSorting({type: "random", pageSize: 3})
+      var tokenIds = await datastore.getSorting({type: "random"})
+      tokenIds = tokenIds.slice(0, 3)
       setCardItemIds(tokenIds)
     }
-    !isWaitingWeb3 && !(cardItemIds == []) && getDisplayCards()
+    !isWaitingWeb3 && (cardItemIds.length == 0) && getDisplayCards()
   })
 
   // card area
@@ -1516,7 +1520,7 @@ var LandingPage = props => {
   var instructionsList = <>
     <div style={{display: "grid", rowGap: THEME.sizing.scale800}}>
       {listRow(1, <>Create your item in the editor.</>, <>Create an item easily in your browser.</>)}
-      {listRow(2, <>Mint the non-fungible token for your item on the ethereum blockchain.</>, <>No two of the <StyledLink href="http://erc721.org/">ERC721</StyledLink> tokens can have the same arrangement of voxels — the token's id is the keccak hash of the voxel grid</>)}
+      {listRow(2, <>Mint the non-fungible token for your item on the ethereum blockchain.</>, <>No two of the <StyledLink href="http://erc721.org/">ERC721</StyledLink> tokens can have the same arrangement of voxels — the token's id is the keccak hash of the voxel grid.</>)}
       {listRow(3, <>Explore and trade for others' items.</>, <>Browse the listings and move around in any item. Or trade on external markets. </>)}
     </div>
   </>
@@ -1600,9 +1604,6 @@ var LandingPage = props => {
       </HeadingLarge>
       {buttonArea}
       <ParagraphLarge>
-
-      </ParagraphLarge>
-      <ParagraphLarge>
         We are currently in BETA.
       </ParagraphLarge>
     </div>
@@ -1640,7 +1641,7 @@ var FeedbackButton = props => {
           error={feedbackSuccess != null && !feedbackSuccess}
           positive={feedbackSuccess}
           disabled={feedbackSuccess}
-          inputRef={inputRef} placeholder={"ideas, problems, etc"}
+          inputRef={inputRef} placeholder={"ideas, problems, questions, etc!"}
           overrides={{InputContainer: {style: {...unsetBorder, height: "36px", backgroundColor: inputBackgroundColor}}}}
         />
       </div>
