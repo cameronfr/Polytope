@@ -430,7 +430,7 @@ class Datastore {
 
   nullType = {
     "user": {name: null, avatarURL: null},
-    "item": {price: null, name: null, description: null, notForSale: null, authorId: null, ownerId: null},
+    "item": {price: null, name: null, description: null, isForSale: null, authorId: null, ownerId: null},
   }
 
   apiFetcher = new APIFetcher()
@@ -706,6 +706,7 @@ var setMarketApprovedForTokenFlow = async (approved, setWaiting, setError) => {
     }).on("receipt", async (receipt) => {
       setWaiting("Refreshing status")
       await datastore.getData({id: "isMarketApprovedForToken", kind: "web3Stuff", overrideCache: true})
+      // should also refresh all items, since card listingPrice can change
       setWaiting("")
       resolve()
     }).on("error", (error, receipt) => {
@@ -1204,7 +1205,7 @@ var ListingCard = props => {
         {description || " "}
       </ParagraphSmall>
       <LabelSmall style={{margin: 0, textAlign: "right", marginTop: "5px"}} color={["contentSecondary"]}>
-        {!isForSale ? "Not For Sale" : weiStringToEthString(price) + " ETH"}
+        {isForSale == null ? "Loading" : isForSale == false ? "Not For Sale" : weiStringToEthString(price) + " ETH"}
       </LabelSmall>
     </div>
   </>
