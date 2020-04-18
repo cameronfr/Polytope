@@ -93,6 +93,7 @@ const tokenContractABI = require("./tokenABI.json")
 const marketContractABI = require("./marketABI.json")
 var tokenContractAddress = "0xe8AA46D8d5565CB7F2F3D9686B0c77f3a6813504"
 var marketContractAddress = "0x301D5e7C1c5e97C2ac81ce979c6c6a9EC87217c8"
+const InfuraEndpoint = "wss://mainnet.infura.io/ws/v3/caf71132422240a38d0e98e364dc8779"
 var globalDebug = false
 if (process.env.NODE_ENV == "development") {
   APIEndpoint = "http://localhost:5000"
@@ -334,7 +335,7 @@ class TokenFetcher {
 
   async getUserAddress({web3}) {
     var accounts = await web3.eth.getAccounts()
-    var userAddress = accounts[0]
+    var userAddress = accounts[0] || null
     return userAddress
   }
 
@@ -424,7 +425,6 @@ class Datastore {
     item: {},
     web3Stuff: {},
   }
-  web3 = null
 
   subscriptionCounter = 0
 
@@ -437,14 +437,23 @@ class Datastore {
   tokenFetcher = new TokenFetcher()
   marketFetcher = new MarketFetcher()
 
+  constructor() {
+    var web3 = {}
+    const infuraWeb3 = new Web3Eth(new Web3Eth.providers.WebsocketProvider(InfuraEndpoint))
+    web3.eth = infuraWeb3
+    this.setWeb3(web3)
+  }
+
   async getData({id, kind, overrideCache}) {
     id = id.toLowerCase()
-    if ((id in this.cache[kind]) && (this.cache[kind][id].data != undefined) && !overrideCache) {
+    var canUseCache = () => (id in this.cache[kind]) && this.cache[kind][id].fetched && !overrideCache
+
+    if (canUseCache()) {
       return this.cache[kind][id].data
     }
 
     var data
-    if (id in this.pendingEndpointCalls[kind]) {
+    if (id in this.pendingEndpointCalls[kind] && !overrideCache) {
       data = await this.pendingEndpointCalls[kind][id]
     } else if (kind == "user") {
       var call = this.apiFetcher.getUser({id})
@@ -459,6 +468,7 @@ class Datastore {
         var call = this.getUserAddress()
         this.pendingEndpointCalls[kind][id] = call
         data = await call
+        console.log("reset userAddress", data, overrideCache)
       } else if (id == "ismarketapprovedfortoken") {
         const userAddress = await this.getData({kind: "web3Stuff", id: "userAddress"})
         const web3 =  await this.getData({kind: "web3Stuff", id: "web3"})
@@ -472,10 +482,18 @@ class Datastore {
     } else {throw "kind not found"}
     delete this.pendingEndpointCalls[kind][id]
 
-    this.cache[kind][id] = this.cache[kind][id] || {data: null, subscribers: {}}
-    this.cache[kind][id].data = data
-    Object.values(this.cache[kind][id].subscribers).forEach(callback => callback(data))
-    return data
+    if (canUseCache()) {
+      console.log("in cache already", id)
+      // unlikely, but may have entered cache from overrideCache call when we were waiting
+      return this.cache[kind][id].data
+    } else {
+      console.log("calling subscribers", id)
+      this.cache[kind][id] = this.cache[kind][id] || {data: null, subscribers: {}}
+      this.cache[kind][id].fetched = true
+      this.cache[kind][id].data = data
+      Object.values(this.cache[kind][id].subscribers).forEach(callback => callback(data))
+      return data
+    }
   }
 
   async getSorting({type, id, page, pageSize}) {
@@ -592,7 +610,7 @@ class Datastore {
     id = id.toLowerCase()
     this.subscriptionCounter += 1
     const subscriptionId = this.subscriptionCounter
-    this.cache[kind][id] = this.cache[kind][id] || {data: undefined, subscribers: {}}
+    this.cache[kind][id] = this.cache[kind][id] || {fetched: false, data: undefined, subscribers: {}}
     this.cache[kind][id].subscribers[subscriptionId] = callback
     return subscriptionId
   }
@@ -602,20 +620,20 @@ class Datastore {
     delete this.cache[kind][id].subscribers[subscriptionId]
   }
 
-  async trySilentRequestWeb3() {
+  async trySilentRequestInjectedWeb3() {
     if (!window.ethereum) {return}
     var web3 = {}
     web3.eth = new Web3Eth(window.ethereum)
     var accounts = await web3.eth.getAccounts()
     if (accounts && accounts.length > 0) {
       // if not null, probably won't have popup when .signIn()
-      var res = await this.requestWeb3()
+      var res = await this.requestInjectedWeb3()
       return res
     }
     return false
   }
 
-  async requestWeb3() {
+  async requestInjectedWeb3() {
     if (!window.ethereum) {
       toaster.warning(`A web3 client such as Metamask is required.`)
       return
@@ -629,7 +647,8 @@ class Datastore {
         toaster.warning(`Client on ${networkType}, please switch to Mainnet.`)
         return false
       } else {
-        this.setWeb3(web3)
+        await this.setWeb3(web3)
+        await this.getData({kind: "web3Stuff", id: "userAddress", overrideCache: true})
         return true
       }
     } catch (error) {
@@ -639,9 +658,10 @@ class Datastore {
     }
   }
 
-  setWeb3(web3) {
+  async setWeb3(web3) {
     this.cache["web3Stuff"]["web3"] = this.cache["web3Stuff"]["web3"] || {data: undefined, subscribers: {}}
     this.cache["web3Stuff"]["web3"].data = web3
+    this.cache["web3Stuff"]["web3"].fetched = true
     Object.values(this.cache["web3Stuff"]["web3"].subscribers).forEach(callback => callback())
   }
 
@@ -750,6 +770,10 @@ const waitingForConfirmationYouCanLeave = <>
 
 var buyItemFlow = async ({setWaiting, setError}, {itemId, priceBN}) => {
   var userAddress = await datastore.getData({id: "userAddress", kind: "web3Stuff"})
+  if (!userAddress) {
+    await datastore.requestInjectedWeb3()
+    var userAddress = await datastore.getData({id: "userAddress", kind: "web3Stuff"})
+  }
 
   setWaiting("Please approve the transaction")
   var transactionPromise = new Promise((resolve, reject) => {
@@ -866,8 +890,8 @@ class App extends React.Component {
   }
 
   componentDidMount() {
-    datastore.trySilentRequestWeb3().then(success => {
-      !success && datastore.requestWeb3()
+    datastore.trySilentRequestInjectedWeb3().then(success => {
+      // default is to use infura web3
     })
   }
 
@@ -1719,7 +1743,7 @@ var Header = props => {
     profileArea = <AvatarAndName id={userAddress} labelColor={"colorPrimary"} labelStyle={{maxWidth: "150px", textOverflow: "ellipsis", overflow: "hidden"}}/>
   } else {
     profileArea = <>
-      <Button onClick={datastore.requestWeb3}>Sign In</Button>
+      <Button onClick={() => datastore.requestInjectedWeb3()}>Sign In</Button>
     </>
   }
 
@@ -2724,8 +2748,12 @@ var PublishItemPanel = props => {
   var userAddress = useGetFromDatastore({kind: "web3Stuff", id: "userAddress"})
   var mintItem = async () => {
     try {
-      if (!web3) {await datastore.requestWeb3(); throw "Web3 loaded, please mint again"}
-      if (!web3 || !userAddress) {throw "Not logged into web3"}
+      if (!web3 || !userAddress) {
+        var granted = await datastore.requestInjectedWeb3()
+        if (!granted) throw "Web3 is needed to mint"
+        web3 = await datastore.getData({kind: "web3Stuff", id: "web3"})
+        userAddress = await datastore.getData({kind: "web3Stuff", id: "userAddress"})
+      }
 
       var rawBlocks = Array.from(props.rawBlocks.data)
       var blocksHash = keccakUtf8(JSON.stringify(rawBlocks))
