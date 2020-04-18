@@ -152,7 +152,7 @@ def getItemData():
 
     return make_response(items, 200)
 
-def renderBlocksObjectToBase64SVG(blocksObject):
+def renderBlocksObjectToSVGString(blocksObject):
     colorList = ["#ffffff","#f7b69e","#cb4d68","#c92464","#f99252","#f7e476","#a1e55a","#5bb361","#6df7c1", "#11adc1","#1e8875","#6a3771","#393457","#606c81","#644536","#9b9c82",]
 
     blocks = np.array(blocksObject).reshape([16, 16, 16]).transpose(0, 2, 1)[::-1, :, :] # match web
@@ -165,6 +165,7 @@ def renderBlocksObjectToBase64SVG(blocksObject):
         rgb = matplotlib.colors.hsv_to_rgb(hsv)
         blockColors[blocks == i+1] = rgb
 
+    plt.ioff()
     fig = plt.figure(figsize=(10,10))
     ax = fig.gca(projection='3d')
     ax.set_axis_off()
@@ -175,8 +176,9 @@ def renderBlocksObjectToBase64SVG(blocksObject):
     # plt.savefig("test.png", format="png", bbox_inches=Bbox.from_bounds(1.2, 1, 8, 8))
     plt.savefig(buffer, format="svg", transparent=True, bbox_inches="tight")
     buffer.seek(0)
-    svgBase64 = f"data:image/svg+xml;base64,{base64.b64encode(buffer.getvalue())}"
-    return svgBase64
+    svgString = buffer.getvalue().decode("utf8")
+    # svgBase64 = f"data:image/svg+xml;base64,{base64.b64encode(buffer.getvalue())}"
+    return svgString
 
 
 # this function is going to be called externally by alot of sites
@@ -196,7 +198,8 @@ def tokenInfo(tokenIdString):
     metadata = item["metadata"]
     metadata["external_url"] = f"https://polytope.space/item/{tokenId}"
     metadata["description"] += "\n\nInteract with a 3D version of this item on polytope.space"
-    metadata["image_data"] = renderBlocksObjectToBase64SVG(metadata["blocks"])
+    # TODO: store / cache these somewhere because on the fly generation expensive.
+    metadata["image_data"] = renderBlocksObjectToSVGString(metadata["blocks"])
 
     # TODO: use infura to only return valid metadata items
     # TODO: query.add_filter("metadataHash", "=", ..)
