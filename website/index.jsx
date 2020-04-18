@@ -1904,8 +1904,8 @@ class VoxelRenderer {
       }
 
       vec4 blockValueAtIndex(vec3 index) {
-        if (clamp(index, vec3(0, 0, 0), worldSize - 1.0) == index) {
-          vec2 blockIdxs = vec2(index.x,index.y*worldSize.z + index.z);
+        if (clamp(index, vec3(0, 0, 0), worldSize - 1.0 + 0.001) == index) {
+          vec2 blockIdxs = vec2(index.x,index.y*worldSize.z + index.z) + vec2(0.5, 0.5);
           vec4 blockValue = ${this.regl.hasExtension("EXT_shader_texture_lod") ?
           "texture2DLodEXT(blocks, blockIdxs/vec2(worldSize.x, worldSize.y*worldSize.z), 0.0);" :
           "texture2D(blocks, blockIdxs/vec2(worldSize.x, worldSize.y*worldSize.z));"}
@@ -1947,11 +1947,13 @@ class VoxelRenderer {
 
       vec4 raymarchToBlock(vec3 startPos, vec3 rayDir, out vec3 blockIdx, out vec3 hitPos) {
         const float eps = 0.00001;
+        // const float eps = 0.01;
+        // const float eps = 0.0000001;
         float t = 0.0;
         for(int i=0; i<maxRaymarchSteps; i++) {
           vec3 rayPos = startPos + rayDir * t;
 
-          vec3 edge = vec3(floor(rayPos.x), floor(rayPos.y), floor(rayPos.z));
+          vec3 edge = floor(rayPos.xyz);
           vec4 blockValue = blockValueAtIndex(edge);
           bool isNonBlankBlock = blockValue.x > 0.0;
           // bool isOutOfBoundsBlock = blockValue.x == -1.0;
@@ -1967,6 +1969,7 @@ class VoxelRenderer {
           vec3 distanceToPlanes = step(vec3(0, 0, 0), rayDir)*(1.0 - fract(rayPos)) + (1.0 - step(vec3(0, 0, 0), rayDir))*(fract(rayPos));
 
           vec3 tDeltasToPlanes = distanceToPlanes / abs(rayDir);
+          // t += min(tDeltasToPlanes.x, min(tDeltasToPlanes.y, tDeltasToPlanes.z)) * 1.0001;
           t += eps + min(tDeltasToPlanes.x, min(tDeltasToPlanes.y, tDeltasToPlanes.z));
         }
 
