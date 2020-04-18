@@ -26,7 +26,7 @@ limiter = Limiter(
     default_limits=["600 per minute"]
 )
 
-corsOrigins = ["https://polytope.space", "http://localhost:1234"]
+corsOrigins = ["https://polytope.space", "http://localhost:1234", "http://192.168.2.167:1234"]
 
 @app.after_request
 def addCORS(response):
@@ -144,6 +144,25 @@ def getItemData():
         items[id] = results
 
     return make_response(items, 200)
+
+# this function is going to be called externally by alot of sites
+# maybe need to CORS it?
+@app.route("/tokenInfo/<tokenIdString>", methods=["GET"])
+def tokenInfo(tokenIdString):
+    tokenId = tokenIdString.split(".json")[0]
+    tokenId = tokenId.lower()
+
+    query = datastoreClient.query(kind="Item")
+    query.add_filter("id", "=", tokenId)
+    results = list(query.fetch()) # multiple because may be some fake-metadata items
+    item = results[0]
+    metadata = item["metadata"]
+    metadata["external_url"] = f"https://polytope.space/item/{tokenId}"
+    # TODO: use infura to only return valid metadata items
+    # TODO: query.add_filter("metadataHash", "=", ..)
+    # TODO: validate metadataHash on upload
+
+    return make_response(metadata, 200)
 
 @app.route("/getPopularItems", methods=["POST"])
 def getPopularItems():
