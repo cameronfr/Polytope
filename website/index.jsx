@@ -772,7 +772,11 @@ const waitingForConfirmationYouCanLeave = <>
 var buyItemFlow = async ({setWaiting, setError}, {itemId, priceBN}) => {
   var userAddress = await datastore.getData({id: "userAddress", kind: "web3Stuff"})
   if (!userAddress) {
-    await datastore.requestInjectedWeb3()
+    var success = await datastore.requestInjectedWeb3()
+    if (!success) {
+      setError("Web3 is required to trade")
+      return
+    }
     var userAddress = await datastore.getData({id: "userAddress", kind: "web3Stuff"})
   }
 
@@ -1831,7 +1835,7 @@ class VoxelRenderer {
 
     this.regl = Regl({
       canvas: this.canvas,
-      extensions: ['EXT_shader_texture_lod'],
+      optionalExtensions: ["EXT_shader_texture_lod"], // guarantees that access to block data will be accurate
       onDone: function (err, regl) {
         if (err) {
           console.log(err)
@@ -1850,7 +1854,7 @@ class VoxelRenderer {
     var imageTexture = this.regl.texture()
 
     const fragmentShader = `
-      #extension GL_EXT_shader_texture_lod : enable
+      ${this.regl.hasExtension("EXT_shader_texture_lod") ? "#extension GL_EXT_shader_texture_lod : enable" : ""}
 
       precision mediump float;
       // precision highp float;
@@ -1902,7 +1906,9 @@ class VoxelRenderer {
       vec4 blockValueAtIndex(vec3 index) {
         if (clamp(index, vec3(0, 0, 0), worldSize - 1.0) == index) {
           vec2 blockIdxs = vec2(index.x,index.y*worldSize.z + index.z);
-          vec4 blockValue = texture2DLodEXT(blocks, blockIdxs/vec2(worldSize.x, worldSize.y*worldSize.z), 0.0);
+          vec4 blockValue = ${this.regl.hasExtension("EXT_shader_texture_lod") ?
+          "texture2DLodEXT(blocks, blockIdxs/vec2(worldSize.x, worldSize.y*worldSize.z), 0.0);" :
+          "texture2D(blocks, blockIdxs/vec2(worldSize.x, worldSize.y*worldSize.z));"}
           return blockValue;
         } else {
            return vec4(0, 0, 0, -1); //so a=-1 means out of bounds, a=0 means blank block
@@ -2136,7 +2142,8 @@ class VoxelRenderer {
             reflectRayCosSim = 0.0;
           }
           float blockIdx = floor(blockValue.x * 255.0) - 1.0;
-          vec3 blockColor = texture2DLodEXT(colorStorage, vec2(blockIdx/16.0, 0.0), 0.0).rgb;
+          vec3 blockColor = ${this.regl.hasExtension("EXT_shader_texture_lod") ?  "texture2DLodEXT(colorStorage, vec2(blockIdx/16.0, 0.0), 0.0).rgb;" :
+          "texture2D(colorStorage, vec2(blockIdx/16.0, 0.0)).rgb;"}
           vec3 colorMix  = (0.0*reflectRayCosSim + 0.6*rayNormCosSim + 0.66) * blockColor * ambientOcclusionAlpha;
           // vec3 colorMix  = blockColor * ambientOcclusionAlpha;
           gl_FragColor = vec4(colorMix, 1);
