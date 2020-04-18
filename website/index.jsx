@@ -96,7 +96,8 @@ var marketContractAddress = "0x301D5e7C1c5e97C2ac81ce979c6c6a9EC87217c8"
 const InfuraEndpoint = "wss://mainnet.infura.io/ws/v3/caf71132422240a38d0e98e364dc8779"
 var globalDebug = false
 if (process.env.NODE_ENV == "development") {
-  APIEndpoint = "http://localhost:5000"
+  // APIEndpoint = "http://localhost:5000"
+  APIEndpoint = "http://192.168.2.167:5000"
   tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe"
   marketContractAddress = "0xFFA62F9f2Bf85F3fF746194C163d681f4ce686B4"
   globalDebug = true
@@ -469,7 +470,6 @@ class Datastore {
         var call = this.getUserAddress()
         this.pendingEndpointCalls[kind][id] = call
         data = await call
-        console.log("reset userAddress", data, overrideCache)
       } else if (id == "ismarketapprovedfortoken") {
         const userAddress = await this.getData({kind: "web3Stuff", id: "userAddress"})
         const web3 =  await this.getData({kind: "web3Stuff", id: "web3"})
@@ -484,11 +484,9 @@ class Datastore {
     delete this.pendingEndpointCalls[kind][id]
 
     if (canUseCache()) {
-      console.log("in cache already", id)
       // unlikely, but may have entered cache from overrideCache call when we were waiting
       return this.cache[kind][id].data
     } else {
-      console.log("calling subscribers", id)
       this.cache[kind][id] = this.cache[kind][id] || {data: null, subscribers: {}}
       this.cache[kind][id].fetched = true
       this.cache[kind][id].data = data
@@ -1856,8 +1854,8 @@ class VoxelRenderer {
     const fragmentShader = `
       ${this.regl.hasExtension("EXT_shader_texture_lod") ? "#extension GL_EXT_shader_texture_lod : enable" : ""}
 
-      precision mediump float;
-      // precision highp float;
+      // precision mediump float;
+      precision highp float; // at least on chrome android, unusable without highp
       uniform vec4 color;
       uniform sampler2D blocks;
       uniform sampler2D imageTexture;
@@ -1947,8 +1945,6 @@ class VoxelRenderer {
 
       vec4 raymarchToBlock(vec3 startPos, vec3 rayDir, out vec3 blockIdx, out vec3 hitPos) {
         const float eps = 0.00001;
-        // const float eps = 0.01;
-        // const float eps = 0.0000001;
         float t = 0.0;
         for(int i=0; i<maxRaymarchSteps; i++) {
           vec3 rayPos = startPos + rayDir * t;
