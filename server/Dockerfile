@@ -17,7 +17,9 @@ RUN pip install \
   google-cloud-datastore \
   web3==5.7.0 \
   Flask-Limiter \
-  google-cloud-logging
+  google-cloud-logging \
+  matplotlib \
+  numpy
 
 # Run the web service on container startup. Here we use the gunicorn
 # webserver, with one worker process and 8 threads.

@@ -2,18 +2,25 @@ from flask import Flask, make_response, request, jsonify
 from flask_limiter import Limiter
 from flask_limiter.util import get_ipaddr
 
+# for blocks rendering
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.colors
+from matplotlib.transforms import Bbox
+from mpl_toolkits.mplot3d import Axes3D
+import io
+import base64
+
 import os
 import logging
 import datetime
 import google.cloud.logging
-
-from google.cloud import datastore
-
 from web3.auto import w3
 from eth_account.messages import defunct_hash_message
 import re
 import time
 
+from google.cloud import datastore
 client = google.cloud.logging.Client()
 client.setup_logging()
 datastoreClient = datastore.Client()
@@ -145,19 +152,52 @@ def getItemData():
 
     return make_response(items, 200)
 
+def renderBlocksObjectToBase64SVG(blocksObject):
+    colorList = ["#ffffff","#f7b69e","#cb4d68","#c92464","#f99252","#f7e476","#a1e55a","#5bb361","#6df7c1", "#11adc1","#1e8875","#6a3771","#393457","#606c81","#644536","#9b9c82",]
+
+    blocks = np.array(blocksObject).reshape([16, 16, 16]).transpose(0, 2, 1)[::-1, :, :] # match web
+    blockColors = np.zeros(blocks.shape + (3,))
+    for i in range(len(colorList)):
+        color = colorList[i][1:]
+        rgb = tuple(int(color[j:j+2], 16)/255 for j in (0, 2, 4))
+        hsv = matplotlib.colors.rgb_to_hsv(rgb)
+        hsv[2] = np.clip(hsv[2] * 1.3, 0, 1) # tweak cause kinda dark in matplotlib renderer
+        rgb = matplotlib.colors.hsv_to_rgb(hsv)
+        blockColors[blocks == i+1] = rgb
+
+    fig = plt.figure(figsize=(10,10))
+    ax = fig.gca(projection='3d')
+    ax.set_axis_off()
+    lightsource = matplotlib.colors.LightSource(azdeg=315, altdeg=45, hsv_min_val=10, hsv_max_val=10, hsv_min_sat=10, hsv_max_sat=10)
+    ax.voxels(blocks, facecolors=blockColors**1.0, shade=True, lightsource=lightsource, edgecolors=blockColors)
+    # plt.show()
+    buffer = io.BytesIO()
+    # plt.savefig("test.png", format="png", bbox_inches=Bbox.from_bounds(1.2, 1, 8, 8))
+    plt.savefig(buffer, format="svg", transparent=True, bbox_inches="tight")
+    buffer.seek(0)
+    svgBase64 = f"data:image/svg+xml;base64,{base64.b64encode(buffer.getvalue())}"
+    return svgBase64
+
+
 # this function is going to be called externally by alot of sites
 # maybe need to CORS it?
 @app.route("/tokenInfo/<tokenIdString>", methods=["GET"])
 def tokenInfo(tokenIdString):
     tokenId = tokenIdString.split(".json")[0]
     tokenId = tokenId.lower()
+    # tokenId = '0xf30baa1b39b524ecb1fdc4db055d35923dc088fd253400a4470ac28e0d6383fa'
+    # tokenId = "0x67e29c88aaf5272d51c8b73ac51620af137634fb1a6ad8670d8a5ea2e7214cdd"
 
     query = datastoreClient.query(kind="Item")
     query.add_filter("id", "=", tokenId)
     results = list(query.fetch()) # multiple because may be some fake-metadata items
     item = results[0]
+
     metadata = item["metadata"]
     metadata["external_url"] = f"https://polytope.space/item/{tokenId}"
+    metadata["description"] += "\n\nInteract with a 3D version of this item on polytope.space"
+    metadata["image_data"] = renderBlocksObjectToBase64SVG(metadata["blocks"])
+
     # TODO: use infura to only return valid metadata items
     # TODO: query.add_filter("metadataHash", "=", ..)
     # TODO: validate metadataHash on upload
