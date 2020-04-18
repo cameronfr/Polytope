@@ -184,7 +184,8 @@ class APIFetcher {
   async getUser({id}) {
     id = id.toLowerCase()
     var call = this.callEndpoint("/getUserData", [id], "POST").then(res => res.json())
-    var {name} = (await call)[id]
+    var data = await call
+    var name = data && data[id] && data[id].name
 
     var user = {
       name: name || this.generateUsername({id}),
