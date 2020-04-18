@@ -2178,7 +2178,8 @@ class VoxelRenderer {
           const worldSize = props.gameState.worldSize
           // .data does not change for a slice, so passing scijs slices as data here won't work
           var blocksReshape = ndarray(props.gameState.blocks.data, [worldSize.x, worldSize.y*worldSize.z, 4])
-          var blocksTexture = this.regl.texture(blocksReshape)
+          var blocksTexture = (this.blocksTexture && this.blocksTexture(blocksReshape)) || this.regl.texture(blocksReshape)
+          this.blocksTexture = blocksTexture
           return blocksTexture
         },
         worldSize: (context, props) => {
@@ -2200,7 +2201,10 @@ class VoxelRenderer {
         imageTexture: imageTexture,
         timeMS: (() => (Date.now() / 1000) % 6.28),
         colorStorage: (context, props) => {
-          return this.regl.texture([props.gameState.blockColors.map(c => this.hexToRGB(c.hex))])
+          var colors = [props.gameState.blockColors.map(c => this.hexToRGB(c.hex))]
+          var colorTexture = (this.colorTexture && this.colorTexture(colors)) || this.regl.texture(colors)
+          this.colorTexture = colorTexture
+          return colorTexture
         },
         topBorderRadius: (context, props) => (options.topBorderRadius || 0),
       },
