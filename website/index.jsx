@@ -40,6 +40,7 @@ import { MdMouse } from "react-icons/md"
 import {IoMdHelpCircleOutline, IoMdHelp, IoMdInformationCircleOutline} from "react-icons/io"
 import { Navigation } from "baseui/side-navigation";
 import { Spinner } from "baseui/spinner";
+import { Modal, ModalBody } from "baseui/modal";
 
 // Web3 imports
 import BigNumber from "bignumber.js"
@@ -96,8 +97,8 @@ var marketContractAddress = "0x301D5e7C1c5e97C2ac81ce979c6c6a9EC87217c8"
 const InfuraEndpoint = "wss://mainnet.infura.io/ws/v3/caf71132422240a38d0e98e364dc8779"
 var globalDebug = false
 if (process.env.NODE_ENV == "development") {
-  // APIEndpoint = "http://localhost:5000"
-  APIEndpoint = "http://192.168.2.167:5000"
+  APIEndpoint = "http://localhost:5000"
+  // APIEndpoint = "http://192.168.2.167:5000"
   tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe"
   marketContractAddress = "0xFFA62F9f2Bf85F3fF746194C163d681f4ce686B4"
   globalDebug = true
@@ -1632,6 +1633,11 @@ var LandingPage = props => {
         Get Started
       </HeadingLarge>
       {buttonArea}
+      <div style={{display: "flex", flexAlign: "center", justifyContent: "center"}}>
+        <div style={{borderRadius: "20px", overflow: "hidden", boxShadow: "0px 0px 3px #ccc"}}>
+          <iframe width="610" height="340" src="https://www.youtube.com/embed/eCk2OV6IRnc?mute=1&rel=0" frameBorder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
+        </div>
+      </div>
       <DisplayXSmall color={["colorSecondary"]} style={{textAlign: "center"}}>
         Polytope's mission is to encourage casual creativity by making the act of creation and the exchange of creations easy.
       </DisplayXSmall>
