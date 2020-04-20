@@ -902,7 +902,7 @@ class App extends React.Component {
   render() {
 
     return (
-      <div style={{display: "grid", gridTemplateRows: "auto 1fr", height: "100%", minWidth: "300px"}}>
+      <div style={{display: "grid", gridTemplateRows: "auto 1fr", height: "100%", minWidth: "800px"}}>
         <ToasterContainer autoHideDuration={3000} overrides={{Root: {style: () => ({zIndex: 2})}}}/>
         <div>
           <Header  />
