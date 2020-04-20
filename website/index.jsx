@@ -901,7 +901,7 @@ class App extends React.Component {
   render() {
 
     return (
-      <div style={{display: "grid", gridTemplateRows: "auto 1fr", height: "100%", minWidth: "1000px"}}>
+      <div style={{display: "grid", gridTemplateRows: "auto 1fr", height: "100%", minWidth: "300px"}}>
         <ToasterContainer autoHideDuration={3000} overrides={{Root: {style: () => ({zIndex: 2})}}}/>
         <div>
           <Header  />
@@ -1550,7 +1550,7 @@ var LandingPage = props => {
     <div style={{display: "grid", rowGap: THEME.sizing.scale800}}>
       {listRow(1, <>Create your item in the editor.</>, <>Create an item easily without leaving the browser.</>)}
       {listRow(2, <>Mint the non-fungible token for your item on the ethereum blockchain.</>, <>No two of the <StyledLink href="http://erc721.org/">ERC721</StyledLink> tokens can have the same arrangement of voxels — the token's id is the keccak hash of the voxel grid.</>)}
-      {listRow(3, <>Explore and trade for others' items.</>, <>Browse the listings and move around in any item. Or trade on external markets. </>)}
+      {listRow(3, <>Explore and trade for others' items.</>, <>Browse the listings and move around in any item. Or trade on <StyledLink href="https://app.rarible.com/collection/0xe8aa46d8d5565cb7f2f3d9686b0c77f3a6813504">external</StyledLink> <StyledLink href="https://opensea.io/assets/polytope">markets</StyledLink>. </>)}
     </div>
   </>
 
@@ -1610,7 +1610,7 @@ var LandingPage = props => {
 
   const clipPath = "polygon(0 0, 100% 0, 100% 0%, 0% 100%)"
 
-  document.title = `Polytope`
+  document.title = `Polytope - Blockchain 3D Voxel Art`
   return <>
     <div style={{display: "grid", padding: THEME.sizing.scale1400, backgroundColor: backgroundColor}}>
       <DisplaySmall>
