@@ -1639,7 +1639,7 @@ var LandingPage = props => {
         </div>
       </div>
       <DisplayXSmall color={["colorSecondary"]} style={{textAlign: "center"}}>
-        Polytope's mission is to encourage casual creativity by making the act of creation and the exchange of creations easy.
+        Polytope's mission is to foster casual creativity by making the act of creation and the exchange of creations easy.
       </DisplayXSmall>
     </div>
     {footer}
