@@ -200,7 +200,7 @@ def tokenInfo(tokenIdString):
     metadata["description"] += "\n\n\nInteract with a 3D version of this item on polytope.space"
     # TODO: store / cache these somewhere because on the fly generation expensive.
     metadata["image_data"] = renderBlocksObjectToSVGString(metadata["blocks"])
-    metadata["background_color"] = "221e1f"
+    metadata["background_color"] = "ffffff" #"221e1f"
 
     # TODO: use infura to only return valid metadata items
     # TODO: query.add_filter("metadataHash", "=", ..)
