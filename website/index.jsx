@@ -1573,8 +1573,11 @@ var LandingPage = props => {
         <HeadingXSmall style={{color: "white", margin: "10px"}}>
           Created by cameronfr.
         </HeadingXSmall>
-        <div style={{margin: "10px"}}>
+        <div style={{margin: "10px", display: "flex", alignItems: "center"}}>
           <FeedbackButton />
+          <HeadingXSmall style={{color: "white", margin: "0px 10px"}}>
+            {"or use our"} {licenseLink("Discord", "https://discordapp.com/invite/ZxpwNS")}
+          </HeadingXSmall>
         </div>
         <HeadingXSmall style={{color: "white", margin: "10px"}}>
           {"Built with"}{" "}
@@ -1683,7 +1686,7 @@ var FeedbackButton = props => {
   React.useEffect(() => {isExpanded && inputRef.current && inputRef.current.focus()}, [isExpanded])
   var startFeedbackButton = <Button
     size={SIZE.compact} kind={KIND.secondary}
-    style={{color: "black", backgroundColor: "white", width: "180px", borderRadius: isHidden ? "15px" : "15px 0px 0px 15px"}}
+    style={{color: "black", backgroundColor: "white", width: "180px", borderRadius: isHidden ? "15px" : "15px 0px 0px 15px", boxShadow: "0px 0px 3px #333"}}
     onClick={e => {e.preventDefault(); rollout()}}>
     Feedback and Contact
   </Button>
@@ -1782,6 +1785,13 @@ var Header = props => {
               Home
             </Button>
           </RouterLink>
+        </StyledNavigationItem>
+        <StyledNavigationItem style={{paddingLeft: "0"}}>
+          <StyledLink href="https://discord.gg/ZxpwNS" style={{textDecoration: "none"}}>
+          <Button kind={KIND.minimal} size={SIZE.default}>
+            Discord
+          </Button>
+          </StyledLink>
         </StyledNavigationItem>
         <StyledNavigationItem style={{paddingLeft: "0"}}>
           <RouterLink to={"/newItem"}>
