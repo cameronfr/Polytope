@@ -99,8 +99,8 @@ var globalDebug = false
 if (process.env.NODE_ENV == "development") {
   APIEndpoint = "http://localhost:5000"
   // APIEndpoint = "http://192.168.2.167:5000"
-  tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe"
-  marketContractAddress = "0xFFA62F9f2Bf85F3fF746194C163d681f4ce686B4"
+  // tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe"
+  // marketContractAddress = "0xFFA62F9f2Bf85F3fF746194C163d681f4ce686B4"
   globalDebug = true
 }
 const mintFee = 5000000000000000
@@ -403,14 +403,14 @@ class MarketFetcher {
       fromBlock: 0, // can change this when need pagination
       filter: {} // can filter later
     })
-    var sales = events.map(event => {
+    var sales = {}
+    events.forEach(event => {
       var eventValues = event.returnValues
       var id = Web3Utils.padLeft(Web3Utils.toHex(eventValues.tokenId), 256/4)
       var price = BigNumber(eventValues.price)
-      var sale = {id, price}
-      return sale
+      sales[id] = {price}
     })
-    return sales
+    return Object.entries(sales).map(([id, val]) => ({id, ...val}))
   }
 
 }
@@ -1140,6 +1140,7 @@ var Listings = props => {
     !isWaitingWeb3 && props.sorting && updateCardIds()
     return () => {isCancelled = true}
   }, [props.sorting, isWaitingWeb3])
+
 
   var cards = cardIds.map(id => {
     // var itemId = Web3Utils.sha3(idx.toString())
