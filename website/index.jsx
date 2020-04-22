@@ -526,13 +526,10 @@ class Datastore {
           indexes.push(i)
         }
       } else if (type == "random") {
-        if (pageSize >= numTokens) {
-          indexes = [...Array(numTokens).keys()]
-        } else {
-          while (indexes.length < pageSize) {
-            var rand = Math.floor(Math.random() * numTokens)
-            !(rand in indexes) && indexes.push(rand)
-          }
+        var max = Math.min(numTokens, pageSize)
+        while (indexes.length < max) {
+          var rand = Math.floor(Math.random() * numTokens)
+          !indexes.includes(rand) && indexes.push(rand)
         }
       }
       var ids = await this.tokenFetcher.getIdsByIndexes({web3: this.cache["web3Stuff"]["web3"].data, indexes})
@@ -868,7 +865,7 @@ var useGetFromDatastore = ({id, kind, dontUse}) => {
   // update on item changes
   React.useEffect(() => {
     if (propsGood && !dontUse) {
-      var subscriptionId = datastore.addDataSubscription({kind, id, callback: update})
+      var subscriptionId = datastore.addDataSubscription({kind, id, callback: () => update()})
       var cancel = () => datastore.removeDataSubscription({kind, id, subscriptionId})
       return cancel
     }
@@ -877,7 +874,7 @@ var useGetFromDatastore = ({id, kind, dontUse}) => {
   // update on web3 changes
   React.useEffect(() => {
     if (propsGood && !dontUse) {
-      var subscriptionId = datastore.addDataSubscription({kind:"web3Stuff",id:"web3", callback: update})
+      var subscriptionId = datastore.addDataSubscription({kind:"web3Stuff",id:"web3", callback: () => update()})
       var cancel = () => datastore.removeDataSubscription({kind:"web3Stuff",id:"web3", subscriptionId})
       return cancel
     }
@@ -1500,14 +1497,14 @@ var LandingPage = props => {
       tokenIds = tokenIds.slice(0, 3)
       setCardItemIds(tokenIds)
     }
-    !isWaitingWeb3 && (cardItemIds.length == 0) && getDisplayCards()
-  })
+    datastore.hasWeb3() && (cardItemIds.length == 0) && getDisplayCards()
+  }, [isWaitingWeb3])
 
   // card area
   const backgroundColor = "#eee"
   var cards = [...Array(3).keys()].map(idx => {
     var itemId = cardItemIds[idx] || null
-    var card = <ListingCard key={idx} id={itemId} voxelRenderer={voxelRenderer} imageSize={220} />
+    var card = <ListingCard key={itemId || idx} id={itemId} voxelRenderer={voxelRenderer} imageSize={220} />
     var container = <div style={{display: "flex", justifyContent: "center"}}>{card}</div>
     return card
   })
