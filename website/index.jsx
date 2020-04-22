@@ -14,7 +14,7 @@ import { Buffer } from "buffer"
 // Voxel Stuff
 import {ApparatusGenerator} from "./procedural.jsx"
 import Stats from "stats.js"
-import {Vector3, PerspectiveCamera, Box3} from 'three';
+import {Vector3, PerspectiveCamera, Box3, Quaternion} from 'three';
 import Regl from "regl"
 import ndarray from "ndarray"
 import mat4 from "gl-mat4"
@@ -2535,10 +2535,16 @@ class GameState {
     this.blocks = options.blocks
 
     this.camera = options.camera || this.defaultCamera()
+
     if (options.playerState) {
       this.camera.position.copy(options.playerState.position)
       this.camera.rotation.copy(options.playerState.rotation)
     }
+
+    // RESETS CAMERA. TODO: remove this
+    this.camera.quaternion.setFromAxisAngle(new Vector3(0, 0, 0), 0)
+    this.camera.updateWorldMatrix()
+
     this.position = this.camera.position
     this.blocks = options.blocks
     this.worldSize = new Vector3(...options.blocks.shape.slice(0, 3))
@@ -3293,15 +3299,22 @@ class FlyControls {
     // Camera rotation
     // Can move head more than 90 deg if move camera quickly
     var cameraCrossVec = (new Vector3(0, 1, 0)).cross(cameraDirection).normalize()
-    var angleToStraightUpDown = cameraDirection.angleTo(new Vector3(0, 1, 0)) // straight up and down
+    var angleToStraightUp = cameraDirection.angleTo(new Vector3(0, 1, 0)) // straight up and down
     const minAngle = 0.2
+    // in both cases, negative is up
+    var tiltAmount = this.rotationSensitivty * this.mouseMoveBuffer.y
     var tiltDir = Math.sign(this.mouseMoveBuffer.y)
-    if ((angleToStraightUpDown < minAngle && tiltDir == 1) || (angleToStraightUpDown > (Math.PI - minAngle) && tiltDir == -1) || (angleToStraightUpDown > minAngle && angleToStraightUpDown < (Math.PI - minAngle))) {
-      this.gameState.camera.rotateOnWorldAxis(cameraCrossVec, this.rotationSensitivty * this.mouseMoveBuffer.y)
+    var validTilt = tiltDir == -1 ?
+      (angleToStraightUp + tiltAmount > minAngle) :
+      (angleToStraightUp + tiltAmount < Math.PI - minAngle)
+
+    if (validTilt) {
+      this.gameState.camera.rotateOnWorldAxis(cameraCrossVec, tiltAmount)
     }
+
     this.gameState.camera.rotateOnWorldAxis(new Vector3(0, 1, 0), -this.rotationSensitivty * this.mouseMoveBuffer.x)
 
-
+    this.gameState.camera.updateWorldMatrix()
   }
 
   externalTick(timeDelta) {
