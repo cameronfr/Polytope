@@ -45,5 +45,6 @@ jobs:
             --image gcr.io/$PROJECT_ID/$SERVICE_NAME:$GITHUB_SHA \
             --platform managed \
             --allow-unauthenticated \
-            --max-instances 10
+            --max-instances 10 \
+            --memory 512Mi 
              
