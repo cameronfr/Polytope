@@ -1,10 +1,11 @@
-from flask import Flask, make_response, request, jsonify
+from flask import Flask, make_response, request, jsonify, Response
 from flask_limiter import Limiter
 from flask_limiter.util import get_ipaddr
 
 # for blocks rendering
 import numpy as np
 import matplotlib.pyplot as plt
+plt.switch_backend('Agg')
 import matplotlib.colors
 from matplotlib.transforms import Bbox
 from mpl_toolkits.mplot3d import Axes3D
@@ -152,7 +153,7 @@ def getItemData():
 
     return make_response(items, 200)
 
-def renderBlocksObjectToSVGString(blocksObject):
+def renderBlocksObjectToSVGData(blocksObject):
     colorList = ["#ffffff","#f7b69e","#cb4d68","#c92464","#f99252","#f7e476","#a1e55a","#5bb361","#6df7c1", "#11adc1","#1e8875","#6a3771","#393457","#606c81","#644536","#9b9c82",]
 
     blocks = np.array(blocksObject).reshape([16, 16, 16]).transpose(0, 2, 1)[::-1, :, :] # match web
@@ -176,7 +177,7 @@ def renderBlocksObjectToSVGString(blocksObject):
     # plt.savefig("test.png", format="png", bbox_inches=Bbox.from_bounds(1.2, 1, 8, 8))
     plt.savefig(buffer, format="svg", transparent=True, bbox_inches="tight")
     buffer.seek(0)
-    svgString = buffer.getvalue().decode("utf8")
+    svgString = buffer.getvalue()
     # svgBase64 = f"data:image/svg+xml;base64,{base64.b64encode(buffer.getvalue())}"
     return svgString
 
@@ -199,14 +200,30 @@ def tokenInfo(tokenIdString):
     metadata["external_url"] = f"https://polytope.space/item/{tokenId}"
     metadata["description"] += "\n\n\nInteract with a 3D version of this item on polytope.space"
     # TODO: store / cache these somewhere because on the fly generation expensive.
-    metadata["image_data"] = renderBlocksObjectToSVGString(metadata["blocks"])
+    metadata["image"] = f"{request.host_url}tokenImage/{tokenId}.svg"
     metadata["background_color"] = "ffffff" #"221e1f"
 
     # TODO: use infura to only return valid metadata items
     # TODO: query.add_filter("metadataHash", "=", ..)
     # TODO: validate metadataHash on upload
+    # same for below tokenImage function
 
     return make_response(metadata, 200)
+
+# called externally. Since e.g. rarible doesn't support image_data
+@app.route("/tokenImage/<tokenIdString>", methods=["GET"])
+def tokenImage(tokenIdString):
+    tokenId = tokenIdString.split(".svg")[0]
+    tokenId = tokenId.lower()
+
+    query = datastoreClient.query(kind="Item")
+    query.add_filter("id", "=", tokenId)
+    results = list(query.fetch()) # multiple because may be some fake-metadata items
+    item = results[0]
+
+    metadata = item["metadata"]
+    svgData = renderBlocksObjectToSVGData(metadata["blocks"])
+    return Response(svgData, mimetype="image/svg+xml")
 
 @app.route("/getPopularItems", methods=["POST"])
 def getPopularItems():
