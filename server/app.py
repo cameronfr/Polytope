@@ -28,7 +28,11 @@ import time
 from web3 import Web3
 w3 = Web3(Web3.HTTPProvider("https://mainnet.infura.io/v3/caf71132422240a38d0e98e364dc8779"))
 tokenContractAddress = "0xe8AA46D8d5565CB7F2F3D9686B0c77f3a6813504"
-tokenContractABI = json.load(open("tokenABI.json"))
+packageDir = os.path.dirname(__file__)
+print("packageDir", packageDir)
+print("Wd", os.getcwd())
+print("listWd", os.listdir())
+tokenContractABI = json.load(open(os.path.join(packageDir, "tokenABI.json")))
 tokenContract = w3.eth.contract(address=tokenContractAddress, abi=tokenContractABI)
 
 # Setup datastore and logging stuff
@@ -55,6 +59,24 @@ def addCORS(response):
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT"
             response.headers["Access-Control-Allow-Headers"] = "Content-Type"
             response.headers["Access-Control-Max-Age"] = "86400"
+    return response
+
+class APIError(Exception):
+    def __init__(self, message, status_code=400, payload=None):
+        Exception.__init__(self)
+        self.message = message
+        self.status_code = status_code
+        self.payload = payload
+
+    def to_dict(self):
+        rv = dict(self.payload or ())
+        rv['message'] = self.message
+        return rv
+
+@app.errorhandler(APIError)
+def handleAPIError(error):
+    response = jsonify(error.to_dict())
+    response.status_code = error.status_code
     return response
 
 @app.route("/")
@@ -130,7 +152,6 @@ def setUserSettings():
     logging.info(f"Updated user {id} to name {name} and email {email}. Request from ip {ipAddress}.")
     return make_response("success", 200)
 
-
 @app.route("/setItemData", methods=["POST"])
 def setItemData():
     data = request.json
@@ -203,12 +224,18 @@ def renderBlocksObjectToSVGData(blocksObject):
 def getValidatedTokenData(tokenId):
     metadataHash = tokenContract.functions.tokenMetadataHash(Web3.toInt(hexstr=tokenId)).call()
     metadataHash = Web3.toHex(Web3.toBytes(metadataHash).rjust(32, b"\0"))
+    metadataHash
 
     query = datastoreClient.query(kind="Item")
     query.add_filter("id", "=", tokenId)
     query.add_filter("metadataHash", "=", metadataHash)
     results = list(query.fetch())
-    item = results[0]
+    try:
+        item = results[0]
+    except IndexError as e:
+        message = f"Item with tokenId {tokenId} not found"
+        logging.info(message)
+        raise APIError(message, 400)
 
     return item
 
