@@ -1,8 +1,10 @@
 from flask import Flask, make_response, request, jsonify, Response
 from flask_limiter import Limiter
 from flask_limiter.util import get_ipaddr
+import json
+from collections import OrderedDict
 
-# for blocks rendering
+# For blocks rendering
 import numpy as np
 import matplotlib.pyplot as plt
 plt.switch_backend('Agg')
@@ -17,10 +19,19 @@ import logging
 import datetime
 import google.cloud.logging
 from web3.auto import w3
+from web3 import Web3
 from eth_account.messages import defunct_hash_message
 import re
 import time
 
+# Setup web3 stuff
+from web3 import Web3
+w3 = Web3(Web3.HTTPProvider("https://mainnet.infura.io/v3/caf71132422240a38d0e98e364dc8779"))
+tokenContractAddress = "0xe8AA46D8d5565CB7F2F3D9686B0c77f3a6813504"
+tokenContractABI = json.load(open("tokenABI.json"))
+tokenContract = w3.eth.contract(address=tokenContractAddress, abi=tokenContractABI)
+
+# Setup datastore and logging stuff
 from google.cloud import datastore
 client = google.cloud.logging.Client()
 client.setup_logging()
@@ -127,6 +138,15 @@ def setItemData():
     metadata = data["metadata"]
     metadataHash = data["metadataHash"]
 
+    # validate the hashes so we can search by hashes in datastore later
+    metadataOrdered = OrderedDict((key, metadata[key]) for key in ["name", "description", "blocks"])
+    metadataOrdered = json.dumps(metadataOrdered, separators=(',', ':')) # have to match js json string
+    calculatedMetadataHash = Web3.keccak(text=metadataOrdered).hex()
+    calculatedBlocksHash = Web3.keccak(text=json.dumps(metadata["blocks"], separators=(',', ':'))).hex()
+
+    assert id == calculatedBlocksHash
+    assert metadataHash == calculatedMetadataHash
+
     key = datastoreClient.key("Item")
     item = datastore.Entity(key=key)
     item["id"] = id
@@ -146,10 +166,7 @@ def getItemData():
     items = {}
     for id in data:
         id = id.lower()
-        query = datastoreClient.query(kind="Item")
-        query.add_filter("id", "=", id)
-        results = list(query.fetch()) # multiple because may be some fake-metadata items
-        items[id] = results
+        items[id] = [getValidatedTokenData(id)]
 
     return make_response(items, 200)
 
@@ -181,6 +198,19 @@ def renderBlocksObjectToSVGData(blocksObject):
     # svgBase64 = f"data:image/svg+xml;base64,{base64.b64encode(buffer.getvalue())}"
     return svgString
 
+# uses infura API to get valid metadata hash from server. Have to use this for tokenInfo bcz e.g. opensea, rarible don't validate. This will return one item instead of multiple; clients can still validate.
+# But in future simpler to not put web3 stuff on server.
+def getValidatedTokenData(tokenId):
+    metadataHash = tokenContract.functions.tokenMetadataHash(Web3.toInt(hexstr=tokenId)).call()
+    metadataHash = Web3.toHex(Web3.toBytes(metadataHash).rjust(32, b"\0"))
+
+    query = datastoreClient.query(kind="Item")
+    query.add_filter("id", "=", tokenId)
+    query.add_filter("metadataHash", "=", metadataHash)
+    results = list(query.fetch())
+    item = results[0]
+
+    return item
 
 # this function is going to be called externally by alot of sites
 # maybe need to CORS it?
@@ -191,10 +221,7 @@ def tokenInfo(tokenIdString):
     # tokenId = '0xf30baa1b39b524ecb1fdc4db055d35923dc088fd253400a4470ac28e0d6383fa'
     # tokenId = "0x67e29c88aaf5272d51c8b73ac51620af137634fb1a6ad8670d8a5ea2e7214cdd"
 
-    query = datastoreClient.query(kind="Item")
-    query.add_filter("id", "=", tokenId)
-    results = list(query.fetch()) # multiple because may be some fake-metadata items
-    item = results[0]
+    item = getValidatedTokenData(tokenId)
 
     metadata = item["metadata"]
     metadata["external_url"] = f"https://polytope.space/item/{tokenId}"
@@ -202,11 +229,6 @@ def tokenInfo(tokenIdString):
     # TODO: store / cache these somewhere because on the fly generation expensive.
     metadata["image"] = f"{request.host_url}tokenImage/{tokenId}.svg"
     metadata["background_color"] = "ffffff" #"221e1f"
-
-    # TODO: use infura to only return valid metadata items
-    # TODO: query.add_filter("metadataHash", "=", ..)
-    # TODO: validate metadataHash on upload
-    # same for below tokenImage function
 
     return make_response(metadata, 200)
 
@@ -216,10 +238,7 @@ def tokenImage(tokenIdString):
     tokenId = tokenIdString.split(".svg")[0]
     tokenId = tokenId.lower()
 
-    query = datastoreClient.query(kind="Item")
-    query.add_filter("id", "=", tokenId)
-    results = list(query.fetch()) # multiple because may be some fake-metadata items
-    item = results[0]
+    item = getValidatedTokenData(tokenId)
 
     metadata = item["metadata"]
     svgData = renderBlocksObjectToSVGData(metadata["blocks"])
