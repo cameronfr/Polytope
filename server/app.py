@@ -24,22 +24,22 @@ from eth_account.messages import defunct_hash_message
 import re
 import time
 
-# Setup web3 stuff
-from web3 import Web3
-w3 = Web3(Web3.HTTPProvider("https://mainnet.infura.io/v3/caf71132422240a38d0e98e364dc8779"))
-tokenContractAddress = "0xe8AA46D8d5565CB7F2F3D9686B0c77f3a6813504"
-packageDir = os.path.dirname(__file__)
-print("packageDir", packageDir)
-print("Wd", os.getcwd())
-print("listWd", os.listdir())
-tokenContractABI = json.load(open(os.path.join(packageDir, "tokenABI.json")))
-tokenContract = w3.eth.contract(address=tokenContractAddress, abi=tokenContractABI)
-
 # Setup datastore and logging stuff
 from google.cloud import datastore
 client = google.cloud.logging.Client()
 client.setup_logging()
 datastoreClient = datastore.Client()
+
+# Setup web3 stuff
+from web3 import Web3
+w3 = Web3(Web3.HTTPProvider("https://mainnet.infura.io/v3/caf71132422240a38d0e98e364dc8779"))
+tokenContractAddress = "0xe8AA46D8d5565CB7F2F3D9686B0c77f3a6813504"
+packageDir = os.path.dirname(__file__)
+logging.info("packageDir", packageDir)
+logging.info("Wd", os.getcwd())
+logging.info("listWd", os.listdir())
+tokenContractABI = json.load(open(os.path.join(packageDir, "tokenABI.json")))
+tokenContract = w3.eth.contract(address=tokenContractAddress, abi=tokenContractABI)
 
 app = Flask(__name__)
 # note: if cloud run instances not maxed, in-memory storage of #hits not effective
@@ -224,7 +224,6 @@ def renderBlocksObjectToSVGData(blocksObject):
 def getValidatedTokenData(tokenId):
     metadataHash = tokenContract.functions.tokenMetadataHash(Web3.toInt(hexstr=tokenId)).call()
     metadataHash = Web3.toHex(Web3.toBytes(metadataHash).rjust(32, b"\0"))
-    metadataHash
 
     query = datastoreClient.query(kind="Item")
     query.add_filter("id", "=", tokenId)
@@ -247,6 +246,7 @@ def tokenInfo(tokenIdString):
     tokenId = tokenId.lower()
     # tokenId = '0xf30baa1b39b524ecb1fdc4db055d35923dc088fd253400a4470ac28e0d6383fa'
     # tokenId = "0x67e29c88aaf5272d51c8b73ac51620af137634fb1a6ad8670d8a5ea2e7214cdd"
+
 
     item = getValidatedTokenData(tokenId)
 
