@@ -40,7 +40,7 @@ function makeSolidityConfig(contractList) {
 }
 
 // import "(.*?)";
-syncRequest("GET", "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts/release-v2.5.0/contracts/ownership/Ownable.sol").getBody().toString("utf8")
+// syncRequest("GET", "https://raw.githubusercontent.com/OpenZeppelin/openzeppelin-contracts/release-v2.5.0/contracts/ownership/Ownable.sol").getBody().toString("utf8")
 
 function importCallback(path) {
   if (path in importCache) {
@@ -145,8 +145,28 @@ async function runContractMethod(contractObj, methodName, methodArgs, accountPk)
   return [outputField, txField]
 }
 
-var contractList = ["myERC1155Tradable.sol"]
+var contractList = ["myERC721.sol"]
 var solidityConfig = makeSolidityConfig(contractList)
+fs.writeFileSync("solidityJSON.json", JSON.stringify(solidityConfig))
+
+// BELOW DOESN't work completely (becaise imports might import relatively), still need to manually inline after doing this
+contractText = fs.readFileSync(path.join(__dirname, "myERC721.sol"), "utf-8")
+contractLines = contractText.split("\n")
+var contractLinesOut = []
+contractLines.forEach(line => {
+  var match = line.match("import \"(.*)\"")
+  if (match != null) {
+    importContent = importCallback(match[1])
+    importLines = importContent.contents.split("\n")
+    contractLinesOut = contractLinesOut.concat(importLines)
+  } else {
+    contractLinesOut.push(line)
+  }
+})
+contractOut = contractLinesOut.join("\n")
+fs.writeFileSync("contractInlined.sol", contractOut)
+
+
 var compiled = JSON.parse(solidity.compile(JSON.stringify(solidityConfig), {import: importCallback}))
 compiled.errors && compiled.errors.map(item => console.log(item.formattedMessage))
 
