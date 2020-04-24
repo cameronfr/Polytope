@@ -1576,7 +1576,7 @@ var LandingPage = props => {
         <div style={{margin: "10px", display: "flex", alignItems: "center"}}>
           <FeedbackButton />
           <HeadingXSmall style={{color: "white", margin: "0px 10px"}}>
-            {"or use our"} {licenseLink("Discord", "https://discordapp.com/invite/ZxpwNS")}
+            {"or use our"} {licenseLink("Discord", "https://discord.gg/XfBPAxv")}
           </HeadingXSmall>
         </div>
         <HeadingXSmall style={{color: "white", margin: "10px"}}>
@@ -1787,7 +1787,7 @@ var Header = props => {
           </RouterLink>
         </StyledNavigationItem>
         <StyledNavigationItem style={{paddingLeft: "0"}}>
-          <StyledLink href="https://discord.gg/ZxpwNS" style={{textDecoration: "none"}}>
+          <StyledLink href="https://discord.gg/XfBPAxv" style={{textDecoration: "none"}}>
           <Button kind={KIND.minimal} size={SIZE.default}>
             Discord
           </Button>
