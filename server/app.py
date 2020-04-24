@@ -34,11 +34,7 @@ datastoreClient = datastore.Client()
 from web3 import Web3
 w3 = Web3(Web3.HTTPProvider("https://mainnet.infura.io/v3/caf71132422240a38d0e98e364dc8779"))
 tokenContractAddress = "0xe8AA46D8d5565CB7F2F3D9686B0c77f3a6813504"
-packageDir = os.path.dirname(__file__)
-logging.info("packageDir", packageDir)
-logging.info("Wd", os.getcwd())
-logging.info("listWd", os.listdir())
-tokenContractABI = json.load(open(os.path.join(packageDir, "tokenABI.json")))
+tokenContractABI = json.load(open("tokenABI.json"))
 tokenContract = w3.eth.contract(address=tokenContractAddress, abi=tokenContractABI)
 
 app = Flask(__name__)
