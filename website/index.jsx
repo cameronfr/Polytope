@@ -19,6 +19,7 @@ import Regl from "regl"
 import ndarray from "ndarray"
 import mat4 from "gl-mat4"
 import np from "ndarray-ops"
+import VoxExporter from "./VoxExporter.js"
 
 // Baseweb UI stuff
 const CopyToClipboard = require('clipboard-copy')
@@ -38,6 +39,7 @@ import { StatefulTooltip, PLACEMENT } from "baseui/tooltip";
 import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ChevronRight, Check } from "baseui/icon"
 import { MdMouse } from "react-icons/md"
 import {IoMdHelpCircleOutline, IoMdHelp, IoMdInformationCircleOutline} from "react-icons/io"
+import {AiOutlineDownload} from "react-icons/ai"
 import { Navigation } from "baseui/side-navigation";
 import { Spinner } from "baseui/spinner";
 import { Modal, ModalBody } from "baseui/modal";
@@ -1375,6 +1377,17 @@ var Listing = props => {
     return cleanupGame
   }, [props.id, item])
 
+  // Downloading
+  var downloadVox = () => {
+    var {blocks} = item
+    var gameState = new GameState({blocks})
+    var exporter = gameState.toVoxExporter()
+    exporter(item.name + ".vox")
+  }
+  var downloadButton = <>
+    <AiOutlineDownload style={{cursor: "pointer", marginLeft: "20px", paddingTop: "5px", color: THEME.colors.colorSecondary,}} title={"Download .vox file"} onClick={downloadVox} size={32} />
+  </>
+
   var owner = useGetFromDatastore({id: item && item.ownerId, kind: "user"})
   var author = useGetFromDatastore({id: item && item.authorId, kind: "user"})
 
@@ -1397,9 +1410,12 @@ var Listing = props => {
 
   var informationArea = <>
     <div style={{/*width: viewAreaSize+"px",*/flexBasis: "min-content", flexGrow: "1", maxWidth: viewAreaSize + "px", display: "grid", height: "min-content"}}>
-      <DisplaySmall>
-        {item.name || " "}
-      </DisplaySmall>
+      <div style={{display: "flex", alignItems: "center"}}>
+        <DisplaySmall>
+          {item.name || " "}
+        </DisplaySmall>
+        {item && item.blocks && downloadButton}
+      </div>
       <LabelLarge style={{overflow: "auto", paddingLeft: "2px", marginTop: "25px", minWidth: "0"}} color={["contentSecondary"]}>
         {props.id}
       </LabelLarge>
@@ -2393,22 +2409,6 @@ class VoxelEditor extends React.Component {
     this.camera.updateProjectionMatrix()
   }
 
-  // removes build plate. and only takes block dim of vec4
-  getRawBlocks() {
-    var validSlice = this.gameState.blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 1)
-    var publishableBlocks = ndarray(new Uint8Array(16*16*16*1), [16, 16, 16, 1])
-    np.assign(publishableBlocks, validSlice)
-    return publishableBlocks
-  }
-
-  //just removes build plate
-  getDisplayBlocks() {
-    var validSlice = this.gameState.blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 4)
-    var displayBlocks = ndarray(new Uint8Array(16*16*16*4), [16, 16, 16, 4])
-    np.assign(displayBlocks, validSlice)
-    return displayBlocks
-  }
-
   render() {
     var sidebar
     if (this.state.atPublishDialog) {
@@ -2416,7 +2416,7 @@ class VoxelEditor extends React.Component {
         this.setState({atPublishDialog: false})
         this.controls.interactionEnabled = true
       }
-      sidebar = <PublishItemPanel onGoBack={onGoBack} rawBlocks={this.getRawBlocks()} blocks={this.getDisplayBlocks()}/>
+      sidebar = <PublishItemPanel onGoBack={onGoBack} rawBlocks={this.gameState.getRawBlocks()} blocks={this.gameState.getDisplayBlocks()}/>
     } else {
       var onContinue = () => {
         this.setState({atPublishDialog: true})
@@ -2583,6 +2583,45 @@ class GameState {
       console.log(e)
       return {}
     }
+  }
+
+  // removes build plate. and only takes block dim of vec4
+  getRawBlocks() {
+    var validSlice = this.blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 1)
+    var publishableBlocks = ndarray(new Uint8Array(16*16*16*1), [16, 16, 16, 1])
+    np.assign(publishableBlocks, validSlice)
+    return publishableBlocks
+  }
+
+  //just removes build plate
+  getDisplayBlocks() {
+    var validSlice = this.blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 4)
+    var displayBlocks = ndarray(new Uint8Array(16*16*16*4), [16, 16, 16, 4])
+    np.assign(displayBlocks, validSlice)
+    return displayBlocks
+  }
+
+  toVoxExporter() {
+    var exporter = new VoxExporter(16, 16, 16)
+    var rawBlocks = this.getRawBlocks()
+    // set blocks
+    for (var x = 0; x < rawBlocks.shape[0]; x++) {
+      for (var y = 0; y < rawBlocks.shape[0]; y++) {
+        for (var z = 0; z < rawBlocks.shape[0]; z++) {
+            var colorIndex = rawBlocks.get(x, y, z, 0)
+            exporter.setVoxel(16-x, z, y, colorIndex) // magicaVoxel coords are diff
+        }
+      }
+    }
+    // set palette
+    this.blockColors.map(colorItem => {
+      var colorHex = colorItem.hex.slice(1, colorItem.hex.length)
+      colorHex = "0x00" + colorHex // add alpha channel
+      exporter.palette[colorItem.id-1] = parseInt(colorHex, 16)
+    })
+
+    var exportFunction = filename => exporter.export(filename)
+    return exportFunction
   }
 
   //serializes a slice, used as input to hash.  e.g. lo=[0, 1, 0] hi=[16, 16, 16]
