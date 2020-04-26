@@ -2553,6 +2553,7 @@ class GameState {
 
     // RESETS CAMERA. TODO: remove this
     this.camera.quaternion.setFromAxisAngle(new Vector3(0, 0, 0), 0)
+    this.camera.lookAt(new Vector3(8,0,8))
     this.camera.updateWorldMatrix()
 
     this.position = this.camera.position
@@ -2970,7 +2971,7 @@ class ResetButtonWithConfirm extends React.Component {
 
   render() {
     var setToConsideration = () => {
-      var timeout1 = window.setTimeout(() => this.setState({disabledDuringConfirmation: false}), 5000)
+      var timeout1 = window.setTimeout(() => this.setState({disabledDuringConfirmation: false}), 1000)
       var timeout2 = window.setTimeout(() => this.setState({awaitingConfirmation: false}), 10000)
       this.setState({awaitingConfirmation: true, disabledDuringConfirmation: true, timeouts:[timeout1, timeout2]})
     }
