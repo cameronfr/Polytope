@@ -99,8 +99,8 @@ var marketContractAddress = "0x301D5e7C1c5e97C2ac81ce979c6c6a9EC87217c8"
 const InfuraEndpoint = "wss://mainnet.infura.io/ws/v3/caf71132422240a38d0e98e364dc8779"
 var globalDebug = false
 if (process.env.NODE_ENV == "development") {
-  APIEndpoint = "http://localhost:5000"
-  // APIEndpoint = "http://192.168.2.167:5000"
+  // APIEndpoint = "http://localhost:5000"
+  APIEndpoint = "http://192.168.10.108:5000"
   // tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe"
   // marketContractAddress = "0xFFA62F9f2Bf85F3fF746194C163d681f4ce686B4"
   globalDebug = true
@@ -1981,7 +1981,7 @@ class VoxelRenderer {
 
           vec3 edge = floor(rayPos.xyz);
           vec4 blockValue = blockValueAtIndex(edge);
-          bool isNonBlankBlock = blockValue.x > 0.0;
+          bool isNonBlankBlock = blockValue.x > 0.5/255.0;
           // bool isOutOfBoundsBlock = blockValue.x == -1.0;
 
           if (isNonBlankBlock) {
@@ -2063,7 +2063,7 @@ class VoxelRenderer {
         for (int i=0; i<4; i++) {
           vec3 adjacentBlockPos = blockIdx + hitNorm + sideDirs[i];
           vec4 adjacentBlockVal = blockValueAtIndex(adjacentBlockPos);
-          if (adjacentBlockVal.x > 0.0) {
+          if (adjacentBlockVal.x > 0.5/255.0) {
             float dist = length(abs(sideDirs[i]) * abs(adjacentBlockPos + vec3(0.5, 0.5, 0.5) - hitPos)) - 0.5;
             avgDist = opSmoothUnion(avgDist, dist, 0.2);
           }
@@ -2072,7 +2072,7 @@ class VoxelRenderer {
         for (int i=0; i<4; i++) {
           vec3 adjacentBlockPos = blockIdx + hitNorm + cornerDirs[i];
           vec4 adjacentBlockVal = blockValueAtIndex(adjacentBlockPos);
-          if (adjacentBlockVal.x > 0.0) {
+          if (adjacentBlockVal.x > 0.5/255.0) {
             vec3 cornerPos = adjacentBlockPos + vec3(0.5, 0.5, 0.5) - cornerDirs[i] * 0.5;
             float dist = length(abs(cornerDirs[i]) * abs(cornerPos - hitPos));
             avgDist = min(avgDist, dist);
@@ -2170,7 +2170,7 @@ class VoxelRenderer {
           if (dot(hitNorm, -lightDir) < 0.0) {
             reflectRayCosSim = 0.0;
           }
-          float blockIdx = floor(blockValue.x * 255.0) - 1.0 + 0.5;
+          float blockIdx = floor(blockValue.x * 255.0 + 0.5) - 1.0 + 0.5;
           vec3 blockColor = ${this.regl.hasExtension("EXT_shader_texture_lod") ?  "texture2DLodEXT(colorStorage, vec2(blockIdx/16.0, 0.5), 0.0).rgb;" :
           "texture2D(colorStorage, vec2(blockIdx/16.0, 0.5)).rgb;"}
           vec3 colorMix  = (0.0*reflectRayCosSim + 0.6*rayNormCosSim + 0.66) * blockColor * ambientOcclusionAlpha;
