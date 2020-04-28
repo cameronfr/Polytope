@@ -2170,9 +2170,9 @@ class VoxelRenderer {
           if (dot(hitNorm, -lightDir) < 0.0) {
             reflectRayCosSim = 0.0;
           }
-          float blockIdx = floor(blockValue.x * 255.0) - 1.0;
-          vec3 blockColor = ${this.regl.hasExtension("EXT_shader_texture_lod") ?  "texture2DLodEXT(colorStorage, vec2(blockIdx/16.0, 0.0), 0.0).rgb;" :
-          "texture2D(colorStorage, vec2(blockIdx/16.0, 0.0)).rgb;"}
+          float blockIdx = floor(blockValue.x * 255.0) - 1.0 + 0.5;
+          vec3 blockColor = ${this.regl.hasExtension("EXT_shader_texture_lod") ?  "texture2DLodEXT(colorStorage, vec2(blockIdx/16.0, 0.5), 0.0).rgb;" :
+          "texture2D(colorStorage, vec2(blockIdx/16.0, 0.5)).rgb;"}
           vec3 colorMix  = (0.0*reflectRayCosSim + 0.6*rayNormCosSim + 0.66) * blockColor * ambientOcclusionAlpha;
           // vec3 colorMix  = blockColor * ambientOcclusionAlpha;
           gl_FragColor = vec4(colorMix, 1);
