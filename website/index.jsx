@@ -101,8 +101,8 @@ var globalDebug = false
 if (process.env.NODE_ENV == "development") {
   // APIEndpoint = "http://localhost:5000"
   APIEndpoint = "http://192.168.10.108:5000"
-  // tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe"
-  // marketContractAddress = "0xFFA62F9f2Bf85F3fF746194C163d681f4ce686B4"
+  tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe"
+  marketContractAddress = "0xFFA62F9f2Bf85F3fF746194C163d681f4ce686B4"
   globalDebug = true
 }
 const mintFee = 5000000000000000
@@ -328,12 +328,13 @@ class TokenFetcher {
     return token
   }
 
-  mintToken({tokenId, metadataHash, userAddress, web3}) {
+  mintToken({tokenId, metadataHash, userAddress, web3, gasPrice}) {
     var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
     var send = tokenContract.methods.mint(userAddress, tokenId, metadataHash).send({
       from: userAddress,
       gas: 250000,
       value: mintFee,
+      gasPrice,
     })
     return send
   }
@@ -350,11 +351,12 @@ class TokenFetcher {
     return approved
   }
 
-  setApprovedForAll({web3, address, userAddress, approved}) {
+  setApprovedForAll({web3, address, userAddress, approved, gasPrice}) {
     var tokenContract = new web3.eth.Contract(tokenContractABI, tokenContractAddress)
     var send = tokenContract.methods.setApprovalForAll(address, approved).send({
       from: userAddress,
       gas: 50000,
+      gasPrice,
     })
     return send
   }
@@ -371,29 +373,32 @@ class MarketFetcher {
     return {isForSale, price}
   }
 
-  setMarketInfo({web3, tokenId, userAddress, isForSale, priceBN}) {
+  setMarketInfo({web3, tokenId, userAddress, isForSale, priceBN, gasPrice}) {
     var marketContract = new web3.eth.Contract(marketContractABI, marketContractAddress);
     var send
     if (!isForSale) {
       send = marketContract.methods.delist(tokenId).send({
         from: userAddress,
         gas: 50000,
+        gasPrice,
       })
     } else if (isForSale) {
       send = marketContract.methods.list(tokenId, priceBN.toString()).send({
         from: userAddress,
-        gas: 100000
+        gas: 100000,
+        gasPrice,
       })
     }
     return send
   }
 
-  buyToken({web3, tokenId, priceBN, userAddress}) {
+  buyToken({web3, tokenId, priceBN, userAddress, gasPrice}) {
     var marketContract = new web3.eth.Contract(marketContractABI, marketContractAddress);
     var send = marketContract.methods.buyFungible(tokenId).send({
       from: userAddress,
       gas: 400000,
-      value: priceBN.toString()
+      value: priceBN.toString(),
+      gasPrice,
     })
     return send
   }
@@ -465,7 +470,7 @@ class Datastore {
       this.pendingEndpointCalls[kind][id] = call
       data = await call
     } else if (kind == "item") {
-      var call = this.getItem({id}).catch(e => {console.log(`Invalid token ${id}`); return "INVALID"})
+      var call = this.getItem({id}).catch(e => {console.log(`Invalid token ${id}, ${e}`); return "INVALID"})
       this.pendingEndpointCalls[kind][id] = call
       data = await call
     } else if (kind == "web3Stuff") {
@@ -481,8 +486,7 @@ class Datastore {
         data = await call
       } else if (id == "web3") {
         return null //should be in cache
-      }
-      else {throw `web3stuff ${id} not found`}
+      } else {throw `web3stuff ${id} not found`}
     } else {throw "kind not found"}
     delete this.pendingEndpointCalls[kind][id]
 
@@ -696,31 +700,44 @@ class Datastore {
       }})
     }
   }
-  mintToken({tokenId, metadataHash, userAddress}) {
-    return this.tokenFetcher.mintToken({tokenId, metadataHash, userAddress, web3: this.cache["web3Stuff"]["web3"].data})
+  async mintToken({tokenId, metadataHash, userAddress}) {
+    var web3 = this.cache["web3Stuff"]["web3"].data
+    var gasPrice = Math.floor((await web3.eth.getGasPrice())*1.25)
+    var send = this.tokenFetcher.mintToken({tokenId, metadataHash, userAddress, web3})
+    return {send}
   }
   getUserAddress() {
     return this.tokenFetcher.getUserAddress({web3: this.cache["web3Stuff"]["web3"].data})
   }
-  setMarketInfo({tokenId, userAddress, isForSale, priceBN}) {
-    return this.marketFetcher.setMarketInfo({tokenId, userAddress, isForSale, priceBN, web3: this.cache["web3Stuff"]["web3"].data})
+  async setMarketInfo({tokenId, userAddress, isForSale, priceBN}) {
+    var web3 = this.cache["web3Stuff"]["web3"].data
+    var gasPrice = Math.floor((await web3.eth.getGasPrice())*1.25)
+    var send = this.marketFetcher.setMarketInfo({tokenId, userAddress, isForSale, priceBN, web3, gasPrice})
+    return {send}
   }
-  setMarketApprovedForToken({approved, userAddress}) {
-    var send = this.tokenFetcher.setApprovedForAll({approved, address: marketContractAddress, userAddress, web3: this.cache["web3Stuff"]["web3"].data})
-    return send
+  async setMarketApprovedForToken({approved, userAddress}) {
+    var web3 = this.cache["web3Stuff"]["web3"].data
+    var gasPrice = Math.floor((await web3.eth.getGasPrice())*1.25)
+    var send = this.tokenFetcher.setApprovedForAll({approved, address: marketContractAddress, userAddress, web3, gasPrice})
+    return {send}
   }
-  buyToken({userAddress, tokenId, priceBN}) {
-    var send = this.marketFetcher.buyToken({userAddress, tokenId, priceBN, web3: this.cache["web3Stuff"]["web3"].data})
-    return send
+  async buyToken({userAddress, tokenId, priceBN}) {
+    var web3 = this.cache["web3Stuff"]["web3"].data
+    var gasPrice = Math.floor((await web3.eth.getGasPrice())*1.25)
+    var send = this.marketFetcher.buyToken({userAddress, tokenId, priceBN, web3, gasPrice})
+    return {send}
   }
 }
 
 var setMarketApprovedForTokenFlow = async (approved, setWaiting, setError) => {
+  console.log("flow")
   var userAddress = await datastore.getData({id: "userAddress", kind: "web3Stuff"})
+  console.log("flow2", userAddress)
   var approvalStatus = await datastore.getData({id: "isMarketApprovedForToken", kind: "web3Stuff"})
+  console.log("flow2")
   if (approvalStatus == approved) {return}
-  var transactionPromise = new Promise((resolve, reject) => {
-    var transactionSend = datastore.setMarketApprovedForToken({approved, userAddress})
+  var transactionPromise = new Promise(async (resolve, reject) => {
+    var transactionSend = (await datastore.setMarketApprovedForToken({approved, userAddress})).send
     setWaiting("Please approve the transaction")
     setError("")
     transactionSend.on("transactionHash", hash => {
@@ -779,8 +796,8 @@ var buyItemFlow = async ({setWaiting, setError}, {itemId, priceBN}) => {
   }
 
   setWaiting("Please approve the transaction")
-  var transactionPromise = new Promise((resolve, reject) => {
-    var transactionSend = datastore.buyToken({tokenId: itemId, userAddress, priceBN})
+  var transactionPromise = new Promise(async (resolve, reject) => {
+    var transactionSend = (await datastore.buyToken({tokenId: itemId, userAddress, priceBN})).send
     transactionSend.on("transactionHash", hash => {
       setWaiting(waitingForConfirmationYouCanLeave)
     }).on("receipt", async (receipt) => {
@@ -817,8 +834,8 @@ var setMarketInfoFlow = async ({setWaiting, setError}, {isForSale, priceBN, item
     setWaiting("Please approve the market transaction")
   }
 
-  var transactionPromise = new Promise((resolve, reject) => {
-    var transactionSend = datastore.setMarketInfo({tokenId: itemId, userAddress, isForSale, priceBN})
+  var transactionPromise = new Promise(async (resolve, reject) => {
+    var transactionSend = (await datastore.setMarketInfo({tokenId: itemId, userAddress, isForSale, priceBN})).send
     transactionSend.on("transactionHash", hash => {
       setWaiting(waitingForConfirmationYouCanLeave)
     }).on("receipt", async (receipt) => {
@@ -2837,7 +2854,7 @@ var PublishItemPanel = props => {
 
       setWaiting("Please approve the mint transaction")
 
-      var mintTransaction = datastore.mintToken({tokenId: blocksHash, metadataHash, userAddress})
+      var mintTransaction = (await datastore.mintToken({tokenId: blocksHash, metadataHash, userAddress})).send
       var mintPromise = new Promise((resolve, reject) => {
         mintTransaction.on("transactionHash", hash => {
           setWaiting("Waiting for confirmations")
