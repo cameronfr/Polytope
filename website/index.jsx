@@ -703,7 +703,7 @@ class Datastore {
   async mintToken({tokenId, metadataHash, userAddress}) {
     var web3 = this.cache["web3Stuff"]["web3"].data
     var gasPrice = Math.floor((await web3.eth.getGasPrice())*1.25)
-    var send = this.tokenFetcher.mintToken({tokenId, metadataHash, userAddress, web3})
+    var send = this.tokenFetcher.mintToken({tokenId, metadataHash, userAddress, web3, gasPrice})
     return {send}
   }
   getUserAddress() {
@@ -730,11 +730,8 @@ class Datastore {
 }
 
 var setMarketApprovedForTokenFlow = async (approved, setWaiting, setError) => {
-  console.log("flow")
   var userAddress = await datastore.getData({id: "userAddress", kind: "web3Stuff"})
-  console.log("flow2", userAddress)
   var approvalStatus = await datastore.getData({id: "isMarketApprovedForToken", kind: "web3Stuff"})
-  console.log("flow2")
   if (approvalStatus == approved) {return}
   var transactionPromise = new Promise(async (resolve, reject) => {
     var transactionSend = (await datastore.setMarketApprovedForToken({approved, userAddress})).send
