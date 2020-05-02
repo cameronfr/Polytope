@@ -2167,7 +2167,8 @@ class VoxelRenderer {
         vec3 cameraPos = (invView * vec4(0, 0, 0, 1)).xyz;
 
         vec3 rayDir = normalize(worldCoords - cameraPos);
-        const vec3 lightDir = normalize(vec3(1, -1, 1));
+        // const vec3 lightDir = normalize(vec3(1, -1, 1));
+        const vec3 lightDir = normalize(vec3(0, 0.6, 0.8));
 
         vec3 hitPos;
         vec3 blockIdx;
@@ -2207,7 +2208,7 @@ class VoxelRenderer {
           float blockIdx = floor(blockValue.x * 255.0 + 0.5) - 1.0 + 0.5;
           vec3 blockColor = ${this.regl.hasExtension("EXT_shader_texture_lod") ?  "texture2DLodEXT(colorStorage, vec2(blockIdx/16.0, 0.5), 0.0).rgb;" :
           "texture2D(colorStorage, vec2(blockIdx/16.0, 0.5)).rgb;"}
-          vec3 colorMix  = (0.0*reflectRayCosSim + 0.6*rayNormCosSim + 0.66) * blockColor * ambientOcclusionAlpha;
+          vec3 colorMix  = (0.0*reflectRayCosSim + 0.2*rayNormCosSim + 0.86) * blockColor * ambientOcclusionAlpha;
           // vec3 colorMix  = blockColor * ambientOcclusionAlpha;
           gl_FragColor = vec4(colorMix, 1);
           // gl_FragColor = vec4(textureCoords, 0.0, 1.0);
