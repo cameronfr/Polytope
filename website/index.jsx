@@ -1590,7 +1590,7 @@ var LandingPage = props => {
   var moreButton = <>
     <div style={{display: "inline", textDecoration: "underline", color: "white", cursor: "pointer"}} onClick={() => setShowMoreBuiltWith(true)}>more</div>
   </>
-  var expandedMore = <> web3, reach-router, bignumber.js, scijs-ndarray, three, babel, parcel, react-icons, wolframalpha icosahedron, and island joy 16. </>
+  var expandedMore = <> web3, reach-router, bignumber.js, scijs-ndarray, three, babel, parcel, react-icons, wolframalpha icosahedron, robobo1221, and island joy 16. </>
   var moreArea = showMoreBuiltWith ? expandedMore : moreButton
   const logoImage = require('./logo.svg');
   const licenseLink = (text, link) => <StyledLink style={{color: "white"}} href={link}>{text}</StyledLink>
@@ -1920,15 +1920,33 @@ class VoxelRenderer {
 
       // robobo1221
       vec3 getSky(vec2 uv){
-          float atmosphere = sqrt(1.0-uv.y);
-          vec3 skyColor = vec3(0.2,0.4,0.8);
+        float atmosphere = sqrt(1.0-uv.y);
+        vec3 skyColor = vec3(0.2,0.4,0.8);
 
-          float scatter = pow(0.2,1.0 / 15.0);
-          scatter = 1.0 - clamp(scatter,0.8,1.0);
+        float scatter = pow(0.2,1.0 / 15.0);
+        scatter = 1.0 - clamp(scatter,0.8,1.0);
 
-          vec3 scatterColor = mix(vec3(1.0),vec3(1.0,0.3,0.0) * 1.5,scatter);
-          return mix(skyColor,vec3(scatterColor),atmosphere / 1.3);
+        vec3 scatterColor = mix(vec3(1.0),vec3(1.0,0.3,0.0) * 1.5,scatter);
+        return mix(skyColor,vec3(scatterColor),atmosphere / 1.3);
       }
+      vec3 getSun(vec3 uvw){
+        float sun = 1.0 - distance(uvw,vec3(0.0, 0.6, 0.8));
+        sun = clamp(sun,0.0,1.0);
+        float glow = sun;
+        glow = clamp(glow,0.0,1.0);
+        sun = pow(sun,100.0);
+        sun *= 100.0;
+        sun = clamp(sun,0.0,1.0);
+        glow = pow(glow,6.0) * 1.0;
+        glow = pow(glow,abs(uvw.y));
+        glow = clamp(glow,0.0,1.0);
+        sun *= pow(dot(uvw.y, uvw.y),  1.0 / 1.65);
+        glow *= pow(dot(uvw.y, uvw.y), 1.0 / 1.5);
+        sun += glow;
+        vec3 sunColor = vec3(1.0,0.6,0.05) * sun;
+        return vec3(sunColor);
+      }
+
 
       float maxOf(vec3 vec) {
         return max(vec.x, max(vec.y, vec.z));
@@ -2158,7 +2176,7 @@ class VoxelRenderer {
 
         // no block hit
         if (blockValue.x == 0.0) {
-          gl_FragColor = vec4(getSky(rayDir.xy), 1);
+          gl_FragColor = vec4(getSky(rayDir.xy) + getSun(rayDir.xyz), 1);
           return;
         }
 
