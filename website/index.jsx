@@ -4,6 +4,8 @@ var ReactDOM = require("react-dom")
 import { Router, Link as RawRouterLink, navigate, Redirect} from "@reach/router"
 import "regenerator-runtime/runtime";
 
+
+
 // Web3 stuff
 // var Web3 = require("web3");
 var Web3Eth = require('web3-eth');
@@ -624,7 +626,7 @@ class Datastore {
   }
 
   async trySilentRequestInjectedWeb3() {
-    if (!window.ethereum) {return}
+    if (window.ethereum == undefined) {return}
     var web3 = {}
     web3.eth = new Web3Eth(window.ethereum)
     var accounts = await web3.eth.getAccounts()
