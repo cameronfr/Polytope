@@ -637,7 +637,7 @@ class Datastore {
   }
 
   async requestInjectedWeb3() {
-    if (!window.ethereum) {
+    if (window.ethereum == undefined) {
       toaster.warning(`A web3 client such as Metamask is required.`)
       return
     }
@@ -1377,7 +1377,7 @@ var Listing = props => {
       var tick = timestamp => {
         if (document.hasFocus()) {
           voxelRenderer.renderQueue.unshift(renderID)
-          flyControls.externalTick(1/60)
+          flyControls.externalTick()
         }
         animationFrameRequestID = window.requestAnimationFrame(tick)
       }
@@ -2367,7 +2367,7 @@ class VoxelEditor extends React.Component {
     this.voxelRenderer = new VoxelRenderer({canvas: this.canvasRef.current, worldSize: this.gameState.worldSize})
     // this.voxelRenderer = new VoxelRenderer({worldSize, topBorderRadius: 14})
     this.renderTargetID = this.voxelRenderer.addTarget({gameState: this.gameState, element: this.canvasRef.current})
-    this.controls.externalTick(1/60)
+    this.controls.externalTick()
     this.voxelRenderer.render(this.renderTargetID)
 
     const saveIntervalInSeconds = 10
@@ -2375,7 +2375,7 @@ class VoxelEditor extends React.Component {
     var tick = timestamp => {
       if (document.hasFocus()) {
         globalDebug && this.stats.begin()
-        this.controls.externalTick(1/60)
+        this.controls.externalTick()
         this.voxelRenderer.render(this.renderTargetID)
         frameCount % (60 * saveIntervalInSeconds) == 0 && this.saveGameState()
         frameCount += 1
@@ -3064,6 +3064,7 @@ class ControlsHelpTooltip extends React.Component {
     var leftClick = this.keyRect(<div style={{display: "flex", alignItems: "center"}}><MdMouse size={keyHeight}/> left</div>, keyHeight )
     var mouseMove = this.keyRect(<div style={{display: "flex", alignItems: "center"}}><ArrowLeft size={keyHeight}/><MdMouse size={keyHeight}/><ArrowRight size={keyHeight}/></div>, keyHeight )
     var e = this.keyRect("e", keyHeight )
+    var f = this.keyRect("f", keyHeight )
     var esc = this.keyRect("esc", keyHeight )
     var breakerLine = <div style={{height:"1px", backgroundColor: "#ccc"}}></div>
 
@@ -3075,6 +3076,7 @@ class ControlsHelpTooltip extends React.Component {
           {e} {this.centeredLabel("toggle focus")}
           {breakerLine} {breakerLine}
           {wasd} {this.centeredLabel("move")}
+          {f} {this.centeredLabel("toggle walking")}
           {shifte} {this.centeredLabel("go down")}
           {space} {this.centeredLabel("go up")}
           {mouseMove} {this.centeredLabel("look")}
@@ -3107,12 +3109,14 @@ class FlyControls {
     this.domElement = options.domElement
     this.interactionEnabled = !options.interactionDisabled
     this.isDisallowedBlockPos = options.isDisallowedBlockPos || (() => false)
+    this.flying = true
 
     this.listeners = []
     this.addEventListener(window, "keydown", e => {
       this.capturingMouseMovement && e.preventDefault()
       this.capturingMouseMovement && this.updateKeystates(e.key, true)
       e.key == "e" && this.toggleMouseCapture()
+      e.key == "f" && this.toggleFlying()
     })
     this.addEventListener(window, "keyup", e => {
       this.capturingMouseMovement && this.updateKeystates(e.key, false)
@@ -3148,11 +3152,14 @@ class FlyControls {
     this.clickBuffer = {click: 0, rightClick: 0}
     this.captureMouseMovement = false
 
-    // Configuration
-    this.toggleMouseCaptureKey = "e"
-    this.maxVelocity = 0.2 // in units/seconds
-    this.timeToReachMaxSpeed = 0.6 // in seconds
-    this.timeToReachZeroSpeed = 0.2 // in seconds
+    // Configuration for fly
+    this.flyConfig = {
+      maxVelocity: 0.2,
+      timeToReachMaxSpeed: 0.6,
+      timeToReachZeroSpeed: 0.2,
+    }
+    // Configuration for walk coded in the function
+
     this.velocity = new Vector3(0, 0, 0)
     this.rotationSensitivty = 0.005 // in radians per (pixel of mouse movement)
 
@@ -3187,6 +3194,10 @@ class FlyControls {
   toggleMouseCapture() {
     this.capturingMouseMovement = !this.capturingMouseMovement
     this.capturingMouseMovement ? this.domElement.requestPointerLock() : document.exitPointerLock()
+  }
+
+  toggleFlying() {
+    this.flying = !this.flying
   }
 
   argmax(vector3) {
@@ -3320,7 +3331,7 @@ class FlyControls {
     }
   }
 
-  moveLookTick(cameraDirection, timeDelta) {
+  flyMoveTick(cameraDirection, timeDelta) {
     var forceVector = new Vector3(0, 0, 0)
 
     if ("w" in this.keyState) {
@@ -3337,8 +3348,8 @@ class FlyControls {
       forceVector.add(new Vector3(0, -1, 0))
     }
 
-    const acceleration = this.maxVelocity * (timeDelta/this.timeToReachMaxSpeed)
-    const deceleration = this.maxVelocity * (timeDelta/this.timeToReachZeroSpeed)
+    const acceleration = this.flyConfig.maxVelocity * (timeDelta/this.flyConfig.timeToReachMaxSpeed)
+    const deceleration = this.flyConfig.maxVelocity * (timeDelta/this.flyConfig.timeToReachZeroSpeed)
     forceVector.multiplyScalar(acceleration)
     // don't apply decel force that will flip velocity sign
     var decelerationForce = this.velocity.clone().normalize().negate().multiplyScalar(Math.min(deceleration, this.velocity.length()))
@@ -3352,19 +3363,87 @@ class FlyControls {
 
 
     var candidateVelocity = this.velocity.clone().add(forceVector)
-    candidateVelocity.clampLength(0, this.maxVelocity) // convenient
+    candidateVelocity.clampLength(0, this.flyConfig.maxVelocity) // convenient
     var candidatePosition = this.gameState.position.clone().add(candidateVelocity)
 
     this.checkCollisionUpdateVel(candidatePosition, candidateVelocity)
     this.velocity = candidateVelocity
     var newPosition = this.gameState.position.clone().add(candidateVelocity)
     this.gameState.position.set(newPosition.x, newPosition.y, newPosition.z)
+  }
 
+  walkMoveTick(cameraDirection, timeDelta) {
+    var walkForce = new Vector3(0, 0, 0)
+    var verticalForce = new Vector3(0, 0.05*-9.8*timeDelta, 0)
+
+    var verticalVelocity = new Vector3(0, this.velocity.y + verticalForce.y, 0)
+    var candidatePosition = this.gameState.position.clone().add(verticalVelocity)
+    var groundForce = this.playerCollisions(candidatePosition)
+    var collisionBelow = false
+    if (candidatePosition.y < 2.3 || groundForce.y == 1) {
+      collisionBelow = true
+      const playerCameraHeight = 1.3
+      // go rest of way, otherwise will fall then stop then fall
+      this.gameState.position.y = Math.ceil(candidatePosition.y - playerCameraHeight) + playerCameraHeight + 0.001
+    }
+
+    if ("w" in this.keyState) {
+      walkForce.add(cameraDirection)
+    } if ("s" in this.keyState) {
+      walkForce.add(cameraDirection.clone().negate())
+    } if ("a" in this.keyState) {
+      walkForce.add((new Vector3(0, 1, 0)).cross(cameraDirection))
+    } if ("d" in this.keyState) {
+      walkForce.add((new Vector3(0, 1, 0)).cross(cameraDirection).negate())
+    } if (" " in this.keyState) {
+      collisionBelow && verticalForce.add(new Vector3(0, 0.15, 0))
+      delete this.keyState[" "]
+    }
+
+    walkForce.y = cameraDirection.y // so that if looking at ground, move slower
+    walkForce = walkForce.normalize().multiplyScalar(0.1)
+
+    var candidateHorizVelocity
+    var candidateVertVelocity = new Vector3(0, 0, 0)
+    var deceleration
+    if (collisionBelow) {
+      candidateHorizVelocity = this.velocity.clone().add(walkForce)
+      candidateHorizVelocity.y = 0
+      if (verticalForce.y > 0) {
+        candidateVertVelocity.y += verticalForce.y
+      }
+      deceleration = Math.min(0.7*timeDelta, this.velocity.length())
+    } else {
+      deceleration = Math.min(0.2*timeDelta, this.velocity.length())
+      candidateHorizVelocity = this.velocity.clone().add(walkForce.clone().multiplyScalar(0.1))
+      candidateHorizVelocity.y = 0
+
+      candidateVertVelocity.y = this.velocity.y
+      candidateVertVelocity.y += verticalForce.y
+    }
+
+    candidateHorizVelocity.y = (Math.abs(cameraDirection.y) / 4)**1.5 // slower when looking down or up
+    candidateHorizVelocity = candidateHorizVelocity.clampLength(0, 0.12)
+    candidateVertVelocity = candidateVertVelocity.clampLength(0, 0.8)
+    candidateHorizVelocity.y = 0
+    var decelerationForce = candidateHorizVelocity.clone().normalize().negate().multiplyScalar(deceleration)
+    candidateHorizVelocity.add(decelerationForce)
+
+    var candidateVelocity = candidateHorizVelocity.clone().add(candidateVertVelocity)
+    var candidatePosition = this.gameState.position.clone().add(candidateHorizVelocity)
+    this.checkCollisionUpdateVel(candidatePosition, candidateVelocity)
+    this.velocity = candidateVelocity
+    var newPosition = this.gameState.position.clone().add(candidateVelocity)
+    this.gameState.position.set(newPosition.x, newPosition.y, newPosition.z)
+
+  }
+
+  cameraRotationTick(cameraDirection, timeDelta) {
     // Camera rotation
     // Can move head more than 90 deg if move camera quickly
     var cameraCrossVec = (new Vector3(0, 1, 0)).cross(cameraDirection).normalize()
     var angleToStraightUp = cameraDirection.angleTo(new Vector3(0, 1, 0)) // straight up and down
-    const minAngle = 0.2
+    const minAngle = 0.01
     // in both cases, negative is up
     var tiltAmount = this.rotationSensitivty * this.mouseMoveBuffer.y
     var tiltDir = Math.sign(this.mouseMoveBuffer.y)
@@ -3381,7 +3460,12 @@ class FlyControls {
     this.gameState.camera.updateWorldMatrix()
   }
 
-  externalTick(timeDelta) {
+  externalTick() {
+    var timestamp = window.performance.now()
+    var timeDelta = this.lastTimestamp ? (timestamp - this.lastTimestamp) / 1000 : (1/60)
+    timeDelta = Math.min(timeDelta, 1/5)
+    this.lastTimestamp = timestamp
+
     this.onNextTick && this.onNextTick()
     this.onNextTick = null
 
@@ -3389,7 +3473,12 @@ class FlyControls {
     this.gameState.camera.getWorldDirection(cameraDirection)
 
     // moving, looking, colliding
-    this.moveLookTick(cameraDirection, timeDelta)
+    if (!this.flying) {
+      this.walkMoveTick(cameraDirection, timeDelta)
+    } else {
+      this.flyMoveTick(cameraDirection, timeDelta)
+    }
+    this.cameraRotationTick(cameraDirection, timeDelta)
     this.mouseMoveBuffer = {x: 0, y: 0}
 
     // adding blocks, removing blocks, block highlight
