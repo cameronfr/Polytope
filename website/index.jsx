@@ -4,6 +4,8 @@ var ReactDOM = require("react-dom")
 import { Router, Link as RawRouterLink, navigate, Redirect} from "@reach/router"
 import "regenerator-runtime/runtime";
 
+
+
 // Web3 stuff
 // var Web3 = require("web3");
 var Web3Eth = require('web3-eth');
