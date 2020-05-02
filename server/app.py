@@ -45,7 +45,7 @@ limiter = Limiter(
     default_limits=["600 per minute"]
 )
 
-corsOrigins = ["https://polytope.space", "http://localhost:1234", "http://192.168.2.167:1234"]
+corsOrigins = ["https://polytope.space", "http://localhost:1234", "http://192.168.10.108:1234"]
 
 @app.after_request
 def addCORS(response):
@@ -247,8 +247,9 @@ def tokenInfo(tokenIdString):
     item = getValidatedTokenData(tokenId)
 
     metadata = item["metadata"]
-    metadata["external_url"] = f"https://polytope.space/item/{tokenId}"
-    metadata["description"] += "\n\n\nInteract with a 3D version of this item on polytope.space"
+    externalURL = f"https://polytope.space/item/{tokenId}"
+    metadata["external_url"] = externalURL
+    metadata["description"] += f"\n\n\nInteract with a 3D version of this item at {externalURL}"
     # TODO: store / cache these somewhere because on the fly generation expensive.
     metadata["image"] = f"{request.host_url}tokenImage/{tokenId}.svg"
     metadata["background_color"] = "ffffff" #"221e1f"
