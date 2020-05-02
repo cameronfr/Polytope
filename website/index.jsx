@@ -624,7 +624,7 @@ class Datastore {
   }
 
   async trySilentRequestInjectedWeb3() {
-    if (!window.ethereum) {return}
+    if (window.ethereum == undefined) {return}
     var web3 = {}
     web3.eth = new Web3Eth(window.ethereum)
     var accounts = await web3.eth.getAccounts()
@@ -637,7 +637,7 @@ class Datastore {
   }
 
   async requestInjectedWeb3() {
-    if (!window.ethereum) {
+    if (window.ethereum == undefined) {
       toaster.warning(`A web3 client such as Metamask is required.`)
       return
     }
