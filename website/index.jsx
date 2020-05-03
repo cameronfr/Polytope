@@ -22,6 +22,7 @@ import ndarray from "ndarray"
 import mat4 from "gl-mat4"
 import np from "ndarray-ops"
 import VoxExporter from "./VoxExporter.js"
+import voxImport from "parse-magica-voxel"
 
 // Baseweb UI stuff
 const CopyToClipboard = require('clipboard-copy')
@@ -103,8 +104,8 @@ var globalDebug = false
 if (process.env.NODE_ENV == "development") {
   // APIEndpoint = "http://localhost:5000"
   APIEndpoint = "http://192.168.10.108:5000"
-  tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe"
-  marketContractAddress = "0xFFA62F9f2Bf85F3fF746194C163d681f4ce686B4"
+  // tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe"
+  // marketContractAddress = "0xFFA62F9f2Bf85F3fF746194C163d681f4ce686B4"
   globalDebug = true
 }
 const mintFee = 5000000000000000
@@ -2262,7 +2263,7 @@ class VoxelRenderer {
         imageTexture: imageTexture,
         timeMS: (() => (Date.now() / 1000) % 6.28),
         colorStorage: (context, props) => {
-          var colors = [props.gameState.blockColors.map(c => this.hexToRGB(c.hex))]
+          var colors = [props.gameState.blockColors.map(c => hexToRGB(c.hex))]
           var colorTexture = (this.colorTexture && this.colorTexture(colors)) || this.regl.texture(colors)
           this.colorTexture = colorTexture
           return colorTexture
@@ -2316,10 +2317,6 @@ class VoxelRenderer {
     this.listeners.map(([obj, eventName, func]) => obj.removeEventListener(eventName, func))
     this.regl.destroy()
     this.canvas.remove()
-  }
-
-  hexToRGB(h) {
-    return [+("0x"+h[1]+h[2]), +("0x"+h[3]+h[4]), +("0x"+h[5]+h[6])]
   }
 
   render(targetID) {
@@ -2645,7 +2642,7 @@ class GameState {
       for (var y = 0; y < rawBlocks.shape[0]; y++) {
         for (var z = 0; z < rawBlocks.shape[0]; z++) {
             var colorIndex = rawBlocks.get(x, y, z, 0)
-            exporter.setVoxel(16-x, z, y, colorIndex) // magicaVoxel coords are diff
+            exporter.setVoxel(16-x-1, z, y, colorIndex) // magicaVoxel coords are diff
         }
       }
     }
@@ -2658,6 +2655,14 @@ class GameState {
 
     var exportFunction = filename => exporter.export(filename)
     return exportFunction
+  }
+
+  // Expects cube sans floor plate
+  setAllBlocks(rawBlocks) {
+    var blocks = ndarray(new Uint8Array(16*17*16*4), [16, 17, 16, 4])
+    var nonFloorSlice = blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 1)
+    np.assign(nonFloorSlice, rawBlocks)
+    this.blocks = blocks
   }
 
   //serializes a slice, used as input to hash.  e.g. lo=[0, 1, 0] hi=[16, 16, 16]
@@ -2789,8 +2794,16 @@ class GameControlPanel extends React.Component {
       this.props.reset()
       this.setState({buildPlate: true})
     }
+
     //grid makes text wrap to width of largest div if make gridTemplateColumns min-content
       // <div style={{display: "grid", gridTemplateColumns: "min-content", height: "min-content", width: "300px"}}>
+    var magicaVoxelTemplatePath = require("./MagicaVoxelTemplate.vox")
+    var importTooltipMessage = <>
+      <div style={{width: "200px"}}>
+        The voxels size must be 16x16x16. Colors will be converted to the nearest color on the palette here. Download a template <StyledLink href={magicaVoxelTemplatePath} style={{color:"white", textDecoration: "underline", outline: "none"}}>here</StyledLink>. More flexibility will be added soon!
+      </div>
+    </>
+
     return (
       <div style={{display: "grid", height: "min-content", width: "250px"}}>
         <LabelMedium>
@@ -2805,6 +2818,12 @@ class GameControlPanel extends React.Component {
         </Caption1>
         <Button size={SIZE.compact} kind={KIND.secondary} onClick={() => this.toggleBuildPlate()}> Toggle build plate </Button>
         <ResetButtonWithConfirm onConfirmed={onResetConfirm}/>
+        <div style={{color: THEME.colors.colorSecondary, fontSize: "12px", lineHeight: "20px", fontFamily: THEME.typography.LabelSmall.fontFamily, margin: "1em 0 1em 0"}}>
+          <TextWithHelpTooltip text={"Import a .vox file from MagicaVoxel."}
+            tooltipMessage={importTooltipMessage}
+          />
+        </div>
+        <VoxImporterButton gameState={this.props.gameState}/>
         <Caption1>
           Continue to minting item
         </Caption1>
@@ -2812,6 +2831,74 @@ class GameControlPanel extends React.Component {
       </div>
     )
   }
+}
+
+var VoxImporterButton = props => {
+  var [fileSelector, setFileSelector] = React.useState()
+
+  var closestGameColorIndex = inRgb => {
+    var gameColors = props.gameState.blockColors.map(colorItem => {
+      var rgb = hexToRGB(colorItem.hex)
+      var distance = (rgb[0]-inRgb[0])**2 + (rgb[1]-inRgb[1])**2 + (rgb[2]-inRgb[2])**2
+      return ({id: colorItem.id, distance})
+    })
+    gameColors.sort((a, b) => (a.distance < b.distance ? -1 : 1))
+    return gameColors[0].id
+  }
+
+  var setBlocksFromParsedFile = parsedFile => {
+    var size = parsedFile.SIZE
+    var palette = parsedFile.RGBA
+
+    if (size.x != 16 || size.y != 16 || size.z != 16) {
+      toaster.warning(`The .vox size must be 16^3! This requirement will be relaxed in the future.`)
+      return
+    }
+    var rawBlocks = ndarray(new Uint8Array(size.x*size.y*size.z), [size.x,size.y,size.z,1])
+
+    var indexedBlocks = parsedFile.XYZI
+    indexedBlocks.forEach(entry => {
+      var {x, y, z, c} = entry
+      if (c != 0) {
+        var rgb = ["r", "g", "b"].map(i => palette[c-1][i])
+        var colorIndex = closestGameColorIndex(rgb)
+        rawBlocks.set(size.x-x-1, z, y, 0, colorIndex) //magicavoxel coords are diff
+      }
+    })
+    props.gameState.setAllBlocks(rawBlocks)
+  }
+
+  var onSelectorChanged = (fileSelector) => {
+    var file = fileSelector.files[0]
+    var reader = new FileReader();
+    reader.readAsArrayBuffer(file);
+    reader.onload = function(){
+      var fileBuffer = reader.result;
+      var parsedFile = voxImport(fileBuffer)
+      var blocks = setBlocksFromParsedFile(parsedFile)
+    };
+    fileSelector.value = null //needed to get change event to fire again
+  }
+
+  var buildFileSelector = () => {
+    const fileSelector = document.createElement("input");
+    fileSelector.setAttribute("type", "file");
+    fileSelector.setAttribute("accept", ".vox");
+    fileSelector.addEventListener("change", e => onSelectorChanged(fileSelector));
+    return fileSelector;
+  }
+
+  React.useEffect(() => {
+    setFileSelector(buildFileSelector())
+  }, [])
+
+  var html = <>
+    <Button size={SIZE.compact} kind={KIND.secondary} onClick={e => fileSelector && fileSelector.click()} >
+      Import Vox File
+    </Button>
+  </>
+
+  return html
 }
 
 var PublishItemPanel = props => {
@@ -3394,6 +3481,7 @@ class FlyControls {
   }
 
   walkMoveTick(cameraDirection, timeDelta) {
+    //TODO: not accurate unless 60fps, need more *timeDeltas
     var walkForce = new Vector3(0, 0, 0)
     var verticalForce = new Vector3(0, 0.05*-9.8*timeDelta, 0)
 
@@ -3572,6 +3660,10 @@ function keccakUtf8(string) {
   hash.update(string, "utf8")
   var hashHex = "0x" + hash.digest("hex")
   return hashHex
+}
+
+function hexToRGB(h) {
+  return [+("0x"+h[1]+h[2]), +("0x"+h[3]+h[4]), +("0x"+h[5]+h[6])]
 }
 
 // Code that runs in module
