@@ -1575,7 +1575,7 @@ var LandingPage = props => {
         <HeadingMedium style={listItemStyle} color={["contentSecondary"]}>
           {bigText}
         </HeadingMedium>
-        <Caption2>{caption}</Caption2>
+        <LabelMedium color={["colorSecondary"]}>{caption}</LabelMedium>
       </div>
     </div>
   </>
