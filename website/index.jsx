@@ -2196,7 +2196,8 @@ class VoxelRenderer {
 
         vec3 isSideHit = floor(abs(hitDists) / 0.495);
         bool isEdge = isSideHit.x + isSideHit.y + isSideHit.z >= 2.0;
-        bool shouldDrawEdge = blockValue.a == 1.0/255.0;
+        bool shouldDrawEdge = blockValue.a != 0.0;
+        // actual bits of a confusing. not 1.0/255.0 on all devices. see blockIdx calculation
 
         if (false && length(hitDists) > 0.8) {
           gl_FragColor = vec4(0, 0, 0, 1); // corner marks
@@ -3413,16 +3414,21 @@ class FlyControls {
     }
 
     if (this.clickBuffer.rightClick > 0) {
+      var newBlockPos
       if (raymarchResult) {
         var [blockPos, hitPos] = raymarchResult
         var [normal, dim] = this.blockNormalAtLocation(blockPos, hitPos)
-        var newBlockPos = normal.add(blockPos)
-        for (var i = 0; i< this.clickBuffer.rightClick; i++) {
-          if (!this.playerCollidesWithCube(newBlockPos, this.gameState.position)) {
-            if (!this.isDisallowedBlockPos(newBlockPos)) {
-              if (this.gameState.withinWorldBounds(newBlockPos)) {
-                this.gameState.addBlock(newBlockPos, this.gameState.selectedBlockColor)
-              }
+        newBlockPos = normal.add(blockPos)
+      }
+      else {
+        newBlockPos = this.gameState.position.clone().add(cameraDirection.clone().multiplyScalar(Math.sqrt(3)))
+        newBlockPos = newBlockPos.floor()
+      }
+      for (var i = 0; i< this.clickBuffer.rightClick; i++) {
+        if (!this.playerCollidesWithCube(newBlockPos, this.gameState.position)) {
+          if (!this.isDisallowedBlockPos(newBlockPos)) {
+            if (this.gameState.withinWorldBounds(newBlockPos)) {
+              this.gameState.addBlock(newBlockPos, this.gameState.selectedBlockColor)
             }
           }
         }
