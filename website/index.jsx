@@ -1408,6 +1408,9 @@ var Listing = props => {
   var owner = useGetFromDatastore({id: item && item.ownerId, kind: "user"})
   var author = useGetFromDatastore({id: item && item.authorId, kind: "user"})
 
+  var userAddress = useGetFromDatastore({kind: "web3Stuff", id: "useraddress"})
+  var viewerIsOwner = item.ownerId == userAddress
+
   // setting window title
   if (item.name) {document.title = `Polytope | ${item.name}`}
 
@@ -1431,7 +1434,7 @@ var Listing = props => {
         <DisplaySmall>
           {item.name || " "}
         </DisplaySmall>
-        {item && item.blocks && downloadButton}
+        {item && item.blocks && viewerIsOwner && downloadButton}
       </div>
       <LabelLarge style={{overflow: "auto", paddingLeft: "2px", marginTop: "25px", minWidth: "0"}} color={["contentSecondary"]}>
         {props.id}
@@ -1456,13 +1459,11 @@ var Listing = props => {
   </>
 
   // Handles all the list / delist / buy stuff
-  var userAddress = useGetFromDatastore({kind: "web3Stuff", id: "useraddress"})
   var [price, setPrice] = React.useState()
   var [waiting, setWaiting] = React.useState()
   var priceBN = ethStringToWei(price)
   var priceValid = !priceBN.isNaN() && priceBN.gt(0)
   var allFieldsValid = priceValid
-  var viewerIsOwner = item.ownerId == userAddress
   var isForSale = item.isForSale
 
   var onClickViewer = () => buyItemFlow({setWaiting, setError: () => null}, {itemId: item.id, priceBN: BigNumber(item.price)})
