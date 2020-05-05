@@ -2800,7 +2800,7 @@ class GameControlPanel extends React.Component {
     var magicaVoxelTemplatePath = require("./MagicaVoxelTemplate.vox")
     var importTooltipMessage = <>
       <div style={{width: "200px"}}>
-        The voxels size must be 16x16x16. Colors will be converted to the nearest color on the palette here. Download a template <StyledLink href={magicaVoxelTemplatePath} style={{color:"white", textDecoration: "underline", outline: "none"}}>here</StyledLink>. More flexibility will be added soon!
+        The voxels size must be 16x16x16. Colors will be converted to the nearest color on the above palette. Download a template <StyledLink href={magicaVoxelTemplatePath} style={{color:"white", textDecoration: "underline", outline: "none"}}>here</StyledLink>. More flexibility will be added soon!
       </div>
     </>
 
@@ -3230,13 +3230,13 @@ class FlyControls {
       this.capturingMouseMovement && this.updateKeystates(e.key, false)
     })
     this.addEventListener(this.domElement, "mousedown", e => {
-      if (e.which == 1) { // left click
+      if (e.button == 0) { // left click
         if (!this.capturingMouseMovement) {
           this.domElement.requestPointerLock()
         } else {
           this.clickBuffer.click += 1
         }
-      } else if (e.which == 3 && this.capturingMouseMovement) {
+      } else if (e.button == 2 && this.capturingMouseMovement) {
           this.clickBuffer.rightClick += 1
       }
     })
