@@ -2475,6 +2475,7 @@ class VoxelEditor extends React.Component {
   resetGameState() {
     // would be better to re-run defaults in constructor
     window.localStorage.setItem("savedNewItemEditorState", null)
+    this.gameState.setBlocks(ndarray(new Uint8Array(16 * 17 * 16 * 4), [16,17,16,4]))
     var gen = (new WorldGenerator({blocks: this.gameState.blocks})).clear()
     gen.bottomPlate()
     this.gameState.position.set(0.01 + this.gameState.worldSize.x/2, 10, 0)
@@ -2646,7 +2647,6 @@ class GameState {
     this.camera.updateWorldMatrix()
 
     this.position = this.camera.position
-    this.worldSize = new Vector3(...options.blocks.shape.slice(0, 3))
   }
 
   // precomputing how far we can send a ray from a given voxel.
@@ -2795,6 +2795,7 @@ class GameState {
   setBlocks(blocks) {
     this.blocks = blocks
     this.updateCubeRaymarchDistances(blocks)
+    this.worldSize = new Vector3(...this.blocks.shape.slice(0, 3))
   }
 
   // Expects cube sans floor plate
