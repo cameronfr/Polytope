@@ -45,7 +45,7 @@ limiter = Limiter(
     default_limits=["600 per minute"]
 )
 
-corsOrigins = ["https://polytope.space", "http://localhost:1234", "http://192.168.10.108:1234"]
+corsOrigins = ["https://polytope.space", "http://localhost:1234", "http://192.168.10.108:1234", "https://b230a12e.ngrok.io/"]
 
 @app.after_request
 def addCORS(response):
