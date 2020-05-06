@@ -103,7 +103,7 @@ const InfuraEndpoint = "wss://mainnet.infura.io/ws/v3/caf71132422240a38d0e98e364
 var globalDebug = false
 if (process.env.NODE_ENV == "development") {
   // APIEndpoint = "http://localhost:5000"
-  APIEndpoint = "http://192.168.10.108:5000"
+  // APIEndpoint = "http://192.168.10.108:5000"
   // tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe"
   // marketContractAddress = "0xFFA62F9f2Bf85F3fF746194C163d681f4ce686B4"
   globalDebug = true
@@ -956,7 +956,7 @@ var SidebarAndListings = props => {
   const [activeSidebarIdx, setActiveSidebarIdx] = React.useState()
 
   React.useEffect(() => {
-    const defaultSidebarId = "#popular"
+    const defaultSidebarId = "#new"
     const newSidebarId = sidebarIds.includes(props.location.hash) ? props.location.hash : defaultSidebarId
     setActiveSidebarIdx(sidebarIds.indexOf(newSidebarId))
   })
@@ -1899,26 +1899,115 @@ class VoxelRenderer {
     // image.onload = () => {imageTexture(image)}
     var imageTexture = this.regl.texture()
 
-    const fragmentShader = `
-      ${this.regl.hasExtension("EXT_shader_texture_lod") ? "#extension GL_EXT_shader_texture_lod : enable" : ""}
 
-      // precision mediump float;
-      precision highp float; // at least on chrome android, unusable without highp
-      uniform vec4 color;
+    const Array2dValueAtIndex = ({indexVar, arrayVar, vertexOrFragment}) => {
+      var functionName
+      var functionArgs = [arrayVar, `${indexVar}`]
+      if (this.regl.hasExtension("EXT_shader_texture_lod")) {
+        functionArgs.push("0.0")
+        if (vertexOrFragment == "vertex") {
+          functionName = "texture2DLod"
+        } else if (vertexOrFragment == "fragment") {
+          functionName = "texture2DLodEXT"
+        } else {
+          throw "vertexOrFragment must be string vertex or fragment"
+        }
+      } else {
+        functionName = "texture2D"
+      }
+      var functionCall = `${functionName}(${functionArgs.join(", ")});`
+      return functionCall
+    }
+
+
+    const sharedShaderVariables = `
       uniform sampler2D blocks;
-      uniform sampler2D imageTexture;
-
       uniform vec2 viewportSize;
-      uniform vec2 fragCoordOffset;
       uniform float topBorderRadius; //hack-y but can't clip abs background
-
       uniform mat4 invProjection;
       uniform mat4 invView;
       uniform float timeMS;
       uniform sampler2D colorStorage;
       uniform vec3 worldSize;
-      const int maxRaymarchSteps = 50;
       const float PI = 3.1415926535;
+    `
+
+    // console.log(Array2dValueAtIndex({indexVar: "blockIdxs", shapeVar: "worldSize", arrayVar: "blocks",vertexOrFragment: "vertex"}))
+
+    const sharedShaderFunctions = vertexOrFragment => `
+      vec4 blockValueAtIndex(vec3 index) {
+        if (clamp(index, vec3(0, 0, 0), worldSize - 1.0 + 0.001) == index) {
+          vec2 blockIdxs = vec2(index.x,index.y*worldSize.z + index.z) + vec2(0.5, 0.5);
+          vec2 arrayIdxs = blockIdxs/vec2(worldSize.x, worldSize.y*worldSize.z);
+          vec4 blockValue = ${Array2dValueAtIndex({arrayVar: "blocks", indexVar: "arrayIdxs", vertexOrFragment})}
+          return blockValue;
+        } else {
+          return vec4(0, 0, 0, -1); //so a=-1 means out of bounds, a=0 means blank block
+        }
+      }
+
+      vec4 raymarchToBlock(vec3 startPos, vec3 rayDir, out vec3 blockIdx, out vec3 hitPos) {
+        const float eps = 0.00001;
+        float t = 0.0;
+        vec3 rayPos;
+        for(int i=0; i<maxRaymarchSteps; i++) {
+          rayPos = startPos + rayDir * t;
+
+          vec3 edge = floor(rayPos.xyz);
+          vec4 blockValue = blockValueAtIndex(edge);
+          bool isNonBlankBlock = blockValue.x > 0.5/255.0;
+          // bool isOutOfBoundsBlock = blockValue.x == -1.0;
+
+          if (isNonBlankBlock) {
+            blockIdx = edge;
+            hitPos = rayPos;
+            return blockValue;
+          }
+
+          // round down if negative rayDir, round up if positive rayDir
+          // need to get distance in direction of ray so sign matters
+          vec3 distanceToPlanes = step(vec3(0, 0, 0), rayDir)*(1.0 - fract(rayPos)) + (1.0 - step(vec3(0, 0, 0), rayDir))*(fract(rayPos));
+
+          float safeRaymarchDist = floor(blockValue.b * 255.0 + 0.5);
+
+          vec3 tDeltasToPlanes = distanceToPlanes / abs(rayDir);
+          float tDelta = eps + min(tDeltasToPlanes.x, min(tDeltasToPlanes.y, tDeltasToPlanes.z));
+          // t += tDelta;
+          t += max(safeRaymarchDist, tDelta);
+        }
+
+        // default values
+        // hitPos = vec3(0, 0, 0);
+        hitPos = startPos;
+        blockIdx = vec3(0, 0, 0);
+        return vec4(0, 0, 0, 0);
+      }
+
+      vec3 getCameraDirection(vec2 screenCoord, vec3 cameraPos) {
+        vec2 scaledScreenCoord = 2.0 * ((screenCoord / viewportSize.xy) - 0.5); // -1 to 1
+        mat4 inverseViewProjection = invView * invProjection;
+        vec4 unscaledWorldCoords = inverseViewProjection * vec4(scaledScreenCoord, 0, 1);
+        vec3 worldCoords = unscaledWorldCoords.xyz / unscaledWorldCoords.w;
+        vec3 rayDir = normalize(worldCoords - cameraPos);
+        return rayDir;
+      }
+    `
+
+    const fragmentShader = `
+      ${this.regl.hasExtension("EXT_shader_texture_lod") ? "#extension GL_EXT_shader_texture_lod : enable" : ""}
+
+      precision highp float; // at least on chrome android, unusable without highp
+
+      uniform sampler2D imageTexture;
+
+      ${sharedShaderVariables}
+
+      const int maxRaymarchSteps = 50;
+      // const int maxRaymarchSteps = 5;
+
+      ${sharedShaderFunctions("fragment")}
+
+      varying vec3 raymarchStartPos; //from vertex shader fuzzy prediction
 
       // robobo1221
       vec3 getSky(vec2 uv){
@@ -1949,7 +2038,6 @@ class VoxelRenderer {
         return vec3(sunColor);
       }
 
-
       float maxOf(vec3 vec) {
         return max(vec.x, max(vec.y, vec.z));
       }
@@ -1965,92 +2053,6 @@ class VoxelRenderer {
           return vec2(vec[0], vec[1]);
         }
         return vec2(0,0);
-      }
-
-      vec4 blockValueAtIndex(vec3 index) {
-        if (clamp(index, vec3(0, 0, 0), worldSize - 1.0 + 0.001) == index) {
-          vec2 blockIdxs = vec2(index.x,index.y*worldSize.z + index.z) + vec2(0.5, 0.5);
-          vec4 blockValue = ${this.regl.hasExtension("EXT_shader_texture_lod") ?
-          "texture2DLodEXT(blocks, blockIdxs/vec2(worldSize.x, worldSize.y*worldSize.z), 0.0);" :
-          "texture2D(blocks, blockIdxs/vec2(worldSize.x, worldSize.y*worldSize.z));"}
-          return blockValue;
-        } else {
-           return vec4(0, 0, 0, -1); //so a=-1 means out of bounds, a=0 means blank block
-         }
-      }
-
-      // Slower
-      // vec4 raymarchToBlockNoBranching(vec3 startPos, vec3 rayDir, out vec3 blockIdx, out vec3 hitPos) {
-      //   vec3 edge;
-      //   vec4 blockValue = vec4(0, 0, 0, 0);
-      //   vec3 outRayPos;
-      //
-      //   const float eps = 0.0001;
-      //   float t = 0.0;
-      //   for(int i=0; i<maxRaymarchSteps; i++) {
-      //     vec3 rayPos = startPos + rayDir * t;
-      //
-      //     bool inWorld = clamp(rayPos, 0.0, float(worldSize) - 0.0000000001) == rayPos;
-      //     vec3 possibleEdge = vec3(floor(rayPos.x), floor(rayPos.y), floor(rayPos.z));
-      //     vec4 possibleBlock = blockValueAtIndex(possibleEdge);
-      //     float shouldUpdateOutputs = float(inWorld && possibleBlock.a != 0.0 && blockValue.x == 0.0);
-      //
-      //     edge = shouldUpdateOutputs * possibleEdge + (1.0-shouldUpdateOutputs) * edge;
-      //     blockValue = shouldUpdateOutputs * possibleBlock + (1.0-shouldUpdateOutputs) * blockValue;
-      //     outRayPos = shouldUpdateOutputs * rayPos + (1.0-shouldUpdateOutputs) * outRayPos;
-      //
-      //     vec3 distanceToPlanes = step(vec3(0, 0, 0), rayDir)*(1.0 - fract(rayPos)) + (1.0 - step(vec3(0, 0, 0), rayDir))*(fract(rayPos));
-      //     vec3 tDeltasToPlanes = distanceToPlanes / abs(rayDir);
-      //     t += eps + min(tDeltasToPlanes.x, min(tDeltasToPlanes.y, tDeltasToPlanes.z));
-      //   }
-      //
-      //   hitPos = outRayPos;
-      //   blockIdx = edge;
-      //   return blockValue;
-      // }
-
-      vec4 raymarchToBlock(vec3 startPos, vec3 rayDir, out vec3 blockIdx, out vec3 hitPos) {
-        const float eps = 0.00001;
-        float t = 0.0;
-        for(int i=0; i<maxRaymarchSteps; i++) {
-          vec3 rayPos = startPos + rayDir * t;
-
-          vec3 edge = floor(rayPos.xyz);
-          vec4 blockValue = blockValueAtIndex(edge);
-          bool isNonBlankBlock = blockValue.x > 0.5/255.0;
-          // bool isOutOfBoundsBlock = blockValue.x == -1.0;
-
-          if (isNonBlankBlock) {
-            blockIdx = edge;
-            hitPos = rayPos;
-            return blockValue;
-          }
-
-          // round down if negative rayDir, round up if positive rayDir
-          // need to get distance in direction of ray so sign matters
-          vec3 distanceToPlanes = step(vec3(0, 0, 0), rayDir)*(1.0 - fract(rayPos)) + (1.0 - step(vec3(0, 0, 0), rayDir))*(fract(rayPos));
-
-          vec3 tDeltasToPlanes = distanceToPlanes / abs(rayDir);
-          // t += min(tDeltasToPlanes.x, min(tDeltasToPlanes.y, tDeltasToPlanes.z)) * 1.0001;
-          t += eps + min(tDeltasToPlanes.x, min(tDeltasToPlanes.y, tDeltasToPlanes.z));
-        }
-
-        // default values
-        hitPos = vec3(0, 0, 0);
-        blockIdx = vec3(0, 0, 0);
-        return vec4(0, 0, 0, 0);
-      }
-
-      // math.stackexchange.com/questions/1014010/how-would-i-calculate-the-area-of-a-rectangle-on-a-sphere-using-vertical-and-hor
-      float sphereRectangleAreaFromAngles(float angle1, float angle2) {
-        float alpha = angle1/2.0;
-        float beta = angle2/2.0;
-        float Abar = atan(sin(beta) / tan(alpha));
-        float Bbar = atan(sin(alpha) / tan(beta));
-        float cosGamma = cos(alpha)*cos(beta);
-        float C = acos(sin(Abar)*sin(Bbar)*cosGamma - cos(Abar)*cos(Bbar));
-        float area = 4.0*C - 2.0*PI;
-        return area;
       }
 
       // from inigo quiliez
@@ -2134,9 +2136,6 @@ class VoxelRenderer {
         } else if (FragCoord.x >= viewportSize.x - radius) {
           distanceFromInnerCorner.x = FragCoord.x - (viewportSize.x - radius);
         }
-        // if (FragCoord.y <= radius) {
-        //   distanceFromInnerCorner.y = radius - FragCoord.y;
-        // }
         if (FragCoord.y >= viewportSize.y - radius) {
           distanceFromInnerCorner.y = FragCoord.y - (viewportSize.y - radius);
         }
@@ -2147,7 +2146,7 @@ class VoxelRenderer {
       }
 
       void main() {
-        vec2 FragCoord = gl_FragCoord.xy - fragCoordOffset;
+        vec2 FragCoord = gl_FragCoord.xy;
         bool isAlpha = borderRadius(FragCoord);
         if (isAlpha) {
           gl_FragColor = vec4(0,0,0,0);
@@ -2162,20 +2161,16 @@ class VoxelRenderer {
         // gl_FragColor = vec4(1,1,1,0);
         // return;
 
-        vec2 scaledScreenCoord = 2.0 * ((FragCoord / viewportSize.xy) - 0.5); // -1 to 1
-        mat4 inverseViewProjection = invView * invProjection;
-        vec4 unscaledWorldCoords = inverseViewProjection * vec4(scaledScreenCoord, 0, 1);
-        vec3 worldCoords = unscaledWorldCoords.xyz / unscaledWorldCoords.w;
         vec3 cameraPos = (invView * vec4(0, 0, 0, 1)).xyz;
+        vec3 rayDir = getCameraDirection(FragCoord, cameraPos);
 
-        vec3 rayDir = normalize(worldCoords - cameraPos);
         // const vec3 lightDir = normalize(vec3(1, -1, 1));
         const vec3 lightDir = normalize(vec3(0, 0.6, 0.8));
 
         vec3 hitPos;
         vec3 blockIdx;
-        // vec4 blockValue = raymarchToBlockBranching(cameraPos, rayDir, blockIdx, hitPos);
-        vec4 blockValue = raymarchToBlock(cameraPos, rayDir, blockIdx, hitPos);
+        // vec4 blockValue = raymarchToBlock(cameraPos, rayDir, blockIdx, hitPos);
+        vec4 blockValue = raymarchToBlock(raymarchStartPos, rayDir, blockIdx, hitPos);
 
         // no block hit
         if (blockValue.x == 0.0) {
@@ -2209,9 +2204,8 @@ class VoxelRenderer {
             reflectRayCosSim = 0.0;
           }
           float blockIdx = floor(blockValue.x * 255.0 + 0.5) - 1.0 + 0.5;
-          vec3 blockColor = ${this.regl.hasExtension("EXT_shader_texture_lod") ?  "texture2DLodEXT(colorStorage, vec2(blockIdx/16.0, 0.5), 0.0).rgb;" :
-          "texture2D(colorStorage, vec2(blockIdx/16.0, 0.5)).rgb;"}
-          vec3 colorMix  = (0.0*reflectRayCosSim + 0.2*rayNormCosSim + 0.86) * blockColor * ambientOcclusionAlpha;
+          vec4 blockColor = ${Array2dValueAtIndex({arrayVar: "colorStorage", indexVar: "vec2(blockIdx/16.0, 0.5)", vertexOrFragment: "fragment"})}
+          vec3 colorMix  = (0.0*reflectRayCosSim + 0.2*rayNormCosSim + 0.86) * blockColor.rgb * ambientOcclusionAlpha;
           // vec3 colorMix  = blockColor * ambientOcclusionAlpha;
           gl_FragColor = vec4(colorMix, 1);
           // gl_FragColor = vec4(textureCoords, 0.0, 1.0);
@@ -2219,25 +2213,89 @@ class VoxelRenderer {
         }
       }
     `
+
+    var vertexShader = `
+      ${this.regl.hasExtension("EXT_shader_texture_lod") ? "#extension GL_EXT_shader_texture_lod : enable" : ""}
+
+      precision highp float; // at least on chrome android, unusable without highp
+
+      ${sharedShaderVariables}
+
+      const int maxRaymarchSteps = 50;
+
+      ${sharedShaderFunctions("vertex")}
+
+      attribute vec2 position;
+
+      varying vec4 colorOut;
+      varying vec3 raymarchStartPos;
+
+      void main() {
+        gl_Position = vec4(position, 0, 1);
+
+        vec2 screenSpaceCoord = ((position / 2.0) + 0.5) * viewportSize.xy;
+
+        vec3 cameraPos = (invView * vec4(0, 0, 0, 1)).xyz;
+        vec3 rayDir = getCameraDirection(screenSpaceCoord, cameraPos);
+
+        vec3 hitPos;
+        vec3 blockIdx;
+        vec4 blockValue = raymarchToBlock(cameraPos, rayDir, blockIdx, hitPos);
+
+        // raymarchStartPos = hitPos - 1.0*rayDir;
+        raymarchStartPos = cameraPos;
+
+        // float colorIndex = floor(blockValue.x * 255.0 + 0.5) - 1.0 + 0.5;
+        // vec4 blockColor = ${Array2dValueAtIndex({arrayVar: "colorStorage", indexVar: "vec2(colorIndex/16.0, 0.5)", vertexOrFragment: "vertex"})}
+        //
+        // colorOut = vec4(blockColor.rgb, 1);
+
+      }
+    `
+
+    const latticeSize = 2
+
     this.drawCommand = this.regl({
       frag: fragmentShader,
+      // frag: `
+      //   precision mediump float;
+      //   varying vec4 colorOut;
+      //   void main() {
+      //     gl_FragColor = colorOut;
+      //     // gl_FragColor = vec4(1, 0, 0, 1);
+      //   }
+      // `,
 
-      vert: `
-        precision mediump float;
-        attribute vec2 position;
-        void main() {
-          gl_Position = vec4(position, 0, 1);
-        }`,
+      vert: vertexShader,
 
       attributes: {
-        position: this.regl.buffer([[-1, -1], [1, -1], [1,  1], [-1, 1], ]),
+        position: (context, props) => {
+          var points = []
+          for (var x=0; x<latticeSize; x++) {
+            for (var y=0; y<latticeSize; y++) {
+              var xCoord = (x/(latticeSize-1)) * 2 + -1
+              var yCoord = (y/(latticeSize-1)) * 2 + -1
+              points.push([xCoord, yCoord])
+            }
+          }
+          return this.regl.buffer(points)
+        }
       },
-
-      elements: [[0, 1, 2], [0, 3, 2],],
+      // elements: [[0, 1, 2], [0, 3, 2]],
+      elements: (context, props) => {
+        var elements = []
+        for (var x=0; x<latticeSize-1; x++) {
+          for (var y=0; y<latticeSize-1; y++) {
+            var idx = x + y*latticeSize
+            elements.push([idx, idx+1, idx+latticeSize])
+            elements.push([idx+latticeSize, idx+1, idx+latticeSize+1])
+          }
+        }
+        return elements
+      },
 
       uniforms: {
         // This defines the color of the triangle to be a dynamic variable
-        color: this.regl.prop('color'),
         blocks: (context, props) => {
           const worldSize = props.gameState.worldSize
           // .data does not change for a slice, so passing scijs slices as data here won't work
@@ -2253,7 +2311,6 @@ class VoxelRenderer {
         viewportSize: (context) => {
           return ([context.viewportWidth, context.viewportHeight])
         },
-        fragCoordOffset: (context, props) => props.fragCoordOffset,
         invProjection: (context, props) => {
           // gl-mat4 wasn't getting an inverse matrix (mb bcz NaN in perspective matrix?)
           return props.gameState.camera.projectionMatrixInverse.elements
@@ -2272,8 +2329,6 @@ class VoxelRenderer {
         },
         topBorderRadius: (context, props) => (options.topBorderRadius || 0),
       },
-
-      count: 6,
     })
 
     this.stopped = false
@@ -2336,7 +2391,7 @@ class VoxelRenderer {
       color: [0, 0, 0, 0],
       depth: 1
     })
-    this.drawCommand({gameState, fragCoordOffset: [0,0]})
+    this.drawCommand({gameState})
     if (this.canvas != element) {
       const targetContext = element.getContext("2d")
       targetContext.drawImage(this.canvas, 0, 0)
@@ -2384,7 +2439,7 @@ class VoxelEditor extends React.Component {
       this.containerRef.current.appendChild(this.stats.dom)
     }
 
-    this.voxelRenderer = new VoxelRenderer({canvas: this.canvasRef.current, worldSize: this.gameState.worldSize})
+    this.voxelRenderer = new VoxelRenderer({pixelRatio: 1,canvas: this.canvasRef.current, worldSize: this.gameState.worldSize})
     // this.voxelRenderer = new VoxelRenderer({worldSize, topBorderRadius: 14})
     this.renderTargetID = this.voxelRenderer.addTarget({gameState: this.gameState, element: this.canvasRef.current})
     this.controls.externalTick()
@@ -2576,7 +2631,7 @@ class GameState {
     }
 
     this.selectedBlockColor = 1
-    this.blocks = options.blocks
+    this.setBlocks(options.blocks)
 
     this.camera = options.camera || this.defaultCamera()
 
@@ -2591,8 +2646,85 @@ class GameState {
     this.camera.updateWorldMatrix()
 
     this.position = this.camera.position
-    this.blocks = options.blocks
     this.worldSize = new Vector3(...options.blocks.shape.slice(0, 3))
+  }
+
+  // precomputing how far we can send a ray from a given voxel.
+  updateCubeRaymarchDistances() {
+    var generateSummedAreaTable = (array4d) => {
+      var shape = array4d.shape.slice(0, 3)
+      var SATArray = ndarray(new Uint16Array(shape[0]*shape[1]*shape[2]), shape) // note max here
+
+      var SAT = (x, y, z) => {
+        if (x < 0 || y < 0 || z < 0) {
+          return 0
+        } else {
+          return SATArray.get(x, y, z)
+        }
+      }
+
+      for (var x=0; x<shape[0]; x++) {
+        for (var y=0; y<shape[1]; y++) {
+          for (var z=0; z<shape[2]; z++) {
+            var isBlock = array4d.get(x, y, z, 0) != 0 ? 1 : 0
+            // Because each SAT arg coord is less than the current x, y, or z, we know the loop must've already hit it.
+            var newVal = isBlock + SAT(x-1,y-1,z-1) + SAT(x, y, z-1) + SAT(x, y-1, z) + SAT(x-1, y, z) - SAT(x-1, y-1, z) - SAT(x, y-1, z-1) - SAT(x-1, y, z-1)
+            SATArray.set(x, y, z, newVal)
+          }
+        }
+      }
+      return SATArray
+    }
+
+    var SAT = generateSummedAreaTable(this.blocks)
+
+    // going by cube "radius -- e.g. min dist(x,y,z) from center block
+    var smallestEmptyCubeSize = (index, startLow, startHigh) => {
+      var cubeBlockCount = r => {
+        var S = (x, y, z) => {
+          if (x < 0 || y < 0 || z < 0) {return 0}
+          else {return SAT.get(x, y, z)}
+        }
+        var [x1, y1, z1] = [index[0]-r-1, index[1]-r-1, index[2]-r-1]
+        var [x2, y2, z2] = [index[0]+r, index[1]+r, index[2]+r]
+        var count = S(x2,y2,z2) - S(x2,y2,z1) - S(x2,y1,z2) - S(x1,y2,z2) + S(x1,y1,z2) + S(x1,y2,z1) + S(x2,y1,z1) - S(x1,y1,z1)
+        return count
+      }
+
+      if (startLow == startHigh - 1 || startLow == startHigh) {
+        return startLow
+      }
+
+      var middle = Math.floor((startLow + startHigh) / 2) // bias low so middle on inner side of border wins
+      var midCubeSize = cubeBlockCount(middle)
+      // low 0 high 1
+      // middle 0
+      // console.log(startLow, middle, startHigh)
+      // console.log("mid cube size", midCubeSize, "at mid rad", middle)
+      var r = middle
+
+      if (midCubeSize > 0) {
+        return smallestEmptyCubeSize(index, startLow, middle)
+      } else if (midCubeSize == 0) {
+        return smallestEmptyCubeSize(index, middle, startHigh)
+      }
+    }
+
+    var shape = this.blocks.shape
+
+    // var dists = []
+
+    for (var x=0; x<shape[0]; x++) {
+      for (var y=0; y<shape[1]; y++) {
+        for (var z=0; z<shape[2]; z++) {
+          var safeRaymarchDist = smallestEmptyCubeSize([x, y, z], 0, Math.min(x, y, z, shape[0]-x-1, shape[1]-y-1, shape[2]-z-1))
+          // dists.push(safeRaymarchDist)
+          this.blocks.set(x, y, z, 2, safeRaymarchDist)
+        }
+      }
+    }
+    // dists.sort()
+    // console.log(dists) //mainly lots of threes. because of the chunk size, most are gonna be close to sides.
   }
 
   toJSON() {
@@ -2659,12 +2791,18 @@ class GameState {
     return exportFunction
   }
 
+  // has to be called when setting this.blocks
+  setBlocks(blocks) {
+    this.blocks = blocks
+    this.updateCubeRaymarchDistances(blocks)
+  }
+
   // Expects cube sans floor plate
   setAllBlocks(rawBlocks) {
     var blocks = ndarray(new Uint8Array(16*17*16*4), [16, 17, 16, 4])
     var nonFloorSlice = blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 1)
     np.assign(nonFloorSlice, rawBlocks)
-    this.blocks = blocks
+    this.setBlocks(blocks)
   }
 
   //serializes a slice, used as input to hash.  e.g. lo=[0, 1, 0] hi=[16, 16, 16]
@@ -2682,10 +2820,12 @@ class GameState {
 
   addBlock(pos, id) {
     this.blocks.set(pos.x, pos.y, pos.z, 0, id)
+    this.updateCubeRaymarchDistances(this.blocks)
   }
 
   removeBlock(pos, id) {
     this.blocks.set(pos.x, pos.y, pos.z, 0, 0)
+    this.updateCubeRaymarchDistances(this.blocks)
   }
 
   toggleBlockOutline(pos, status) {
