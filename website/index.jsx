@@ -3925,7 +3925,7 @@ class FlyControls {
     } if ("d" in this.keyState) {
       walkForce.add((new Vector3(0, 1, 0)).cross(cameraDirection).negate())
     } if (" " in this.keyState) {
-      collisionBelow && verticalForce.add(new Vector3(0, 0.15, 0))
+      collisionBelow && verticalForce.set(0, 0.15 , 0)
       delete this.keyState[" "]
     }
 
