@@ -35,6 +35,7 @@ import { ListItem } from "baseui/list";
 import { Button, KIND, SIZE, SHAPE } from "baseui/button";
 import { Input as InputBroken } from "baseui/input"
 import { Search } from "baseui/icon";
+import { Select } from "baseui/select";
 import { Notification, KIND as NotificationKind} from "baseui/notification";
 import { toaster, ToasterContainer } from "baseui/toast";
 import { Checkbox, LABEL_PLACEMENT } from "baseui/checkbox";
@@ -962,25 +963,42 @@ var SidebarAndListings = props => {
     const newSidebarId = sidebarIds.includes(props.location.hash) ? props.location.hash : defaultSidebarId
     setActiveSidebarIdx(sidebarIds.indexOf(newSidebarId))
   })
-  var onChange = ({event, item}) => {
-    event.preventDefault()
-    navigate(item.itemId)
+  var onChange = ({event, item, value}) => {
+    event && event.preventDefault()
+    item && navigate(item.itemId)
+    value && navigate(value[0].itemId)
   }
 
   // setting window title
   if (activeSidebarIdx) {document.title = `Polytope | ${sidebarItems[activeSidebarIdx].itemId}`}
 
-  return <div style={{display: "grid", gridTemplateColumns: "auto 1fr", height: "100%"}}>
-    <div style={{width: "200px", marginLeft: THEME.sizing.scale1400, marginTop: THEME.sizing.scale1400, boxSizing: "border-box"}}>
-      <Navigation items={sidebarItems} activeItemId={sidebarIds[activeSidebarIdx]} onChange={onChange}/>
-    </div>
+  var listings = <>
     <div style={{position: "relative"}}>
       <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0", overflow: "auto"}}>
         <Listings sorting={(activeSidebarIdx != null) && sidebarItems[activeSidebarIdx].sorting} />
       </div>
     </div>
-  </div>
+  </>
 
+  var isMobile = useMediaQuery([0, 700])
+  var desktopHtml =  <>
+    <div style={{display: "grid", gridTemplateColumns: "auto 1fr", height: "100%"}}>
+      <div style={{width: "200px", marginLeft: THEME.sizing.scale1400, marginTop: THEME.sizing.scale1400, boxSizing: "border-box"}}>
+        <Navigation items={sidebarItems} activeItemId={sidebarIds[activeSidebarIdx]} onChange={onChange}/>
+      </div>
+      {listings}
+    </div>
+  </>
+  var mobileHtml = <>
+    <div style={{display: "grid", gridTemplateRows: "min-content auto", height: "100%"}}>
+      <Select options={sidebarItems} labelKey="title" valueKey="title" value={[sidebarItems[activeSidebarIdx]]} onChange={onChange} clearable={false} searchable={false} />
+      {listings}
+    </div>
+  </>
+
+  var html = isMobile ? mobileHtml : desktopHtml
+
+  return html
 }
 
 var UserProfile = props => {
@@ -1155,6 +1173,7 @@ var Listings = props => {
   React.useEffect(() => {
     var isCancelled = false
     var updateCardIds = async () => {
+      setCardIds(cardIds.map(id => null)) // don't lag but also don't flash
       var ids = await datastore.getSorting(props.sorting)
       !isCancelled && setCardIds(ids)
     }
@@ -1163,9 +1182,9 @@ var Listings = props => {
   }, [props.sorting, isWaitingWeb3])
 
 
-  var cards = cardIds.map(id => {
+  var cards = cardIds.map((id, idx) => {
     // var itemId = Web3Utils.sha3(idx.toString())
-    var card = <ListingCard key={id} id={id} voxelRenderer={voxelRenderer} imageSize={220} />
+    var card = <ListingCard key={id || idx} id={id} voxelRenderer={voxelRenderer} imageSize={220} />
     return card
   })
 
@@ -1280,7 +1299,7 @@ var ListingCard = props => {
   }
 
   var card = <>
-    <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", backfaceVisibility: "hidden", position: "relative", zIndex: "1", width: "min-content",/* width: imageSize+"px",*/ position: "relative", backgroundColor: "eee"}} ref={cardRef}>
+    <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", backfaceVisibility: "hidden", position: "relative", zIndex: "unset", width: "min-content",/* width: imageSize+"px",*/ position: "relative", backgroundColor: "eee"}} ref={cardRef}>
       <div style={{position: "absolute", right: "10px", top: "10px"}}>
         <UserAvatar id={ownerId} size={35} />
       </div>
@@ -1354,12 +1373,14 @@ var usePromise = (datastoreCall, shouldRun) => {
 
 
 var Listing = props => {
-  const viewAreaSize = 500
 
   // Listing details
   React.useEffect(() => {
     datastore.getItemDetails({id: props.id})
   }, [props.id])
+
+  var isMobile = useMediaQuery([0, 700])
+  //TODO: currently canvas object changes when size switches to mobile (so have to rerender in useeffect), would be nice if it didnt.
 
   var item = useGetFromDatastore({id: props.id, kind: "item"})
 
@@ -1404,32 +1425,59 @@ var Listing = props => {
     }
     setupGame()
     return cleanupGame
-  }, [props.id, item])
+  }, [props.id, item, isMobile])
 
   // setting window title
   if (item.name) {document.title = `Polytope | ${item.name}`}
 
-  var canvasArea = <>
-    <div style={{width: viewAreaSize+"px", height: viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", position: "relative", zIndex: "1"}} ref={canvasContainerRef}>
+  const viewAreaSize = 500
+  var canvasAndControls = <>
+    <div style={{position: "relative", zIndex: "1"}} ref={canvasContainerRef}>
       <div style={{position: "absolute", top:"10px", right: "10px"}}>
         <ControlsHelpTooltip hideEditControls/>
       </div>
       <canvas style={{height: "100%", width: "100%"}} ref={canvasRef}/>
     </div>
   </>
-
-  return <>
-    <div style={{display: "flex", justifyContent: "center", alignItems: "center"}}>
-      <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", padding: THEME.sizing.scale1400, columnGap: THEME.sizing.scale1400}}>
-        <div style={{display: "grid", gridTemplateColumns: "min-content min-content"}}>
-          {/*TODO: make this accessible */}
-          <ArrowLeft size={40} onClick={() => window.history.back()} style={{color: "black", cursor: "pointer"}}/>
-          {canvasArea}
-        </div>
-        <ItemDetailsPanel id={props.id}/>
-      </div>
+  var backArrow =  <>
+    <div style={{marginRight: "10px"}}>
+      <ArrowLeft size={40} onClick={() => window.history.back()} style={{color: "black", cursor: "pointer"}}/>
     </div>
   </>
+  var halfMargin = "28px" // half of theme.sizing.scale1400
+  var desktopListing = <>
+      <div style={{display: "flex", padding: halfMargin, flexWrap: "wrap", justifyContent: "center"}}>
+        <div style={{display: "grid", gridTemplateColumns: "min-content min-content", margin: halfMargin}}>
+          {/*TODO: make this accessible */}
+          {backArrow}
+          <div style={{width: viewAreaSize+"px", height: viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc"}}>
+            {canvasAndControls}
+          </div>
+        </div>
+        <div style={{margin: halfMargin, flexBasis: "350px", flexGrow: "1"}}>
+          <ItemDetailsPanel id={props.id}/>
+        </div>
+      </div>
+  </>
+  var mobileListing = <>
+      <div style={{display: "flex", flexWrap: "wrap", justifyContent: "center"}}>
+        <div style={{width: "100vw", height: "100vw", backgroundColor: "#ccc"}}>
+          {canvasAndControls}
+        </div>
+        <div style={{margin: halfMargin}}>
+          <ItemDetailsPanel id={props.id}/>
+        </div>
+      </div>
+  </>
+
+
+  var html = <>
+    <div style={{display: "flex", justifyContent: "center", alignItems: "center"}}>
+      {isMobile ? mobileListing : desktopListing}
+    </div>
+  </>
+
+  return html
 }
 
 // owner, hash, buy option, etc.
@@ -1585,11 +1633,6 @@ var LandingPage = props => {
     </div>
   </>
   var listingsScreen = <>
-    <div style={{backgroundColor: backgroundColor, paddingBottom: THEME.sizing.scale1400, width: "100%", display: "flex", alignItems: "center", justifyContent: "space-around"}}>
-      {cards}
-    </div>
-  </>
-  var listingsScreen = <>
     <div style={{backgroundColor: backgroundColor, paddingBottom: THEME.sizing.scale1400, width: "100%", display: "grid", gridTemplateColumns:"repeat(auto-fit, 350px)", gridTemplateRows: "1fr 0 0", justifyItems: "center", justifyContent: "center"}}>
       {cards}
     </div>
@@ -1625,6 +1668,9 @@ var LandingPage = props => {
     </div>
   </>
 
+  var isMobile = useMediaQuery([0, 600])
+  var mainMarginSize = isMobile ? "28px" : "56px" // THEME.sizing.scale1400 is 56
+
   //footer
   var [showMoreBuiltWith, setShowMoreBuiltWith] = React.useState(false)
   var moreButton = <>
@@ -1634,7 +1680,7 @@ var LandingPage = props => {
   var moreArea = showMoreBuiltWith ? expandedMore : moreButton
   const logoImage = require('./logo.svg');
   const licenseLink = (text, link) => <StyledLink style={{color: "white"}} href={link}>{text}</StyledLink>
-  var halfMargin = "28px" // half of THEME.sizing.scale1400
+  var halfMargin = `calc(${mainMarginSize}/2)`
   var footer = <>
     <div style={{display: "flex", justifyContent: "start", padding: halfMargin, backgroundColor: THEME.colors.colorSecondary, alignItems: "center", flexWrap: "wrap"}}>
       <MediaQueryBlock range={[800, null]}>
@@ -1687,7 +1733,7 @@ var LandingPage = props => {
 
   document.title = `Polytope - Blockchain 3D Voxel Art`
   return <>
-    <div style={{display: "grid", padding: THEME.sizing.scale1400, backgroundColor: backgroundColor}}>
+    <div style={{display: "grid", paddingLeft: mainMarginSize, paddingRight: mainMarginSize, paddingTop: mainMarginSize, paddingBottom: THEME.sizing.scale1400, backgroundColor: backgroundColor}}>
       <DisplaySmall>
         Create, explore, and trade a new generation of digital items.
       </DisplaySmall>
@@ -1695,7 +1741,7 @@ var LandingPage = props => {
     {cardArea}
     <div style={{clipPath, WebkitClipPath: clipPath, height: "100px", backgroundColor: backgroundColor}}>
     </div>
-    <div style={{display: "grid", padding: THEME.sizing.scale1400, rowGap: THEME.sizing.scale1000}}>
+    <div style={{display: "grid", padding: mainMarginSize, rowGap: THEME.sizing.scale1000}}>
       <HeadingLarge color={["colorSecondary"]} style={{margin: "0"}}>
         Every item is a 3D scene of 16<div style={{display: "inline", position: "relative", top: "-0.7em", "fontSize": "60%"}}>3</div> voxels that can be entered and explored.
       </HeadingLarge>
@@ -1708,7 +1754,7 @@ var LandingPage = props => {
       </HeadingLarge>
       {buttonArea}
       <div style={{display: "flex", flexAlign: "center", justifyContent: "center"}}>
-        <div style={{borderRadius: "20px", overflow: "hidden", boxShadow: "0px 0px 3px #ccc", height: "39vw", width: "70vw", maxWidth: "680px", maxHeight: "383px"}}>
+        <div style={{borderRadius: "20px", overflow: "hidden", boxShadow: "0px 0px 3px #ccc", height: "45vw", width: "80vw", maxWidth: "680px", maxHeight: "383px"}}>
           <iframe style={{height: "100%", width: "100%"}} src="https://www.youtube.com/embed/eCk2OV6IRnc?mute=1&rel=0" frameBorder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
         </div>
       </div>
@@ -1826,7 +1872,25 @@ var MediaQueryBlock = props => {
   </>
 
   return (isVisible && html)
+}
 
+var useMediaQuery = range => {
+  var [isWithin, setIsWithin] = React.useState(false)
+
+  var reevaluateVisibility = () => {
+    var width = document.documentElement.clientWidth // innerWidth changes on zoom on mobile
+    var visible = (range[0] == null || width >= range[0]) && (range[1] == null || width < range[1])
+    setIsWithin(visible)
+  }
+
+  React.useEffect(() => {
+    window.addEventListener("resize", reevaluateVisibility)
+    reevaluateVisibility()
+    var cleanup = () => window.removeEventListener("resize", reevaluateVisibility)
+    return cleanup
+  }, [range])
+
+  return isWithin
 }
 
 var Header = props => {
@@ -1952,7 +2016,7 @@ var Header = props => {
 
   var mobileHeader = <>
     <div style={{backgroundColor: "white", width: "100%", paddingTop: "12px", borderBottom: "1px solid #ccc"}}>
-      <div style={{paddingLeft: "12px", paddingRight: "12px", width: "100%", boxSizing: "border-box"}}>
+      <div style={{paddingLeft: "15px", paddingRight: "15px", width: "100%", boxSizing: "border-box"}}>
         <div style={{display: "flex", justifyContent: "space-between", alignItems: "center"}}>
           {branding}
           {profileArea}
@@ -3774,15 +3838,19 @@ class FlyControls {
     this.addEventListener(this.domElement,"mouseup", e => {
     })
     this.addEventListener(this.domElement, "mousemove", e => this.capturingMouseMovement && this.updateMouseBuffer(e.movementX, e.movementY))
+    var lastTouch
     this.addEventListener(this.domElement, "touchmove", e => {
       e.preventDefault()
       var touch = e.touches[0]
-      if (this.lastTouch && touch && this.lastTouch.identifier == touch.identifier) {
-        var movementX = touch.pageX - this.lastTouch.pageX
-        var movementY = touch.pageY - this.lastTouch.pageY
+      if (lastTouch && touch && lastTouch.identifier == touch.identifier) {
+        var movementX = touch.pageX - lastTouch.pageX
+        var movementY = touch.pageY - lastTouch.pageY
         this.updateMouseBuffer(movementX, movementY)
       }
-      this.lastTouch = touch
+      lastTouch = touch
+    })
+    this.addEventListener(this.domElement, "touchend", e => {
+      lastTouch = null
     })
 
     this.keyState = {}
