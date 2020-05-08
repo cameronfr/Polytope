@@ -1,7 +1,7 @@
 // React / babel stuff
 var React = require("react")
 var ReactDOM = require("react-dom")
-import { Router, Link as RawRouterLink, navigate, Redirect} from "@reach/router"
+import { Router, Link as RawRouterLink, navigate, Redirect, useLocation} from "@reach/router"
 import "regenerator-runtime/runtime";
 
 
@@ -919,7 +919,7 @@ class App extends React.Component {
   render() {
 
     return (
-      <div style={{display: "grid", gridTemplateRows: "auto 1fr", height: "100%", minWidth: "800px"}}>
+      <div style={{display: "grid", gridTemplateRows: "auto 1fr", height: "100%", /*minWidth: "800px"*/}}>
         <ToasterContainer autoHideDuration={3000} overrides={{Root: {style: () => ({zIndex: 2})}}}/>
         <div>
           <Header  />
@@ -1589,6 +1589,11 @@ var LandingPage = props => {
       {cards}
     </div>
   </>
+  var listingsScreen = <>
+    <div style={{backgroundColor: backgroundColor, paddingBottom: THEME.sizing.scale1400, width: "100%", display: "grid", gridTemplateColumns:"repeat(auto-fit, 350px)", gridTemplateRows: "1fr 0 0", justifyItems: "center", justifyContent: "center"}}>
+      {cards}
+    </div>
+  </>
   var isWaitingWeb3 = !useGetFromDatastore({kind: "web3Stuff", id: "web3"})
   var cardArea = isWaitingWeb3 ? web3WaitingScreen : listingsScreen
 
@@ -1629,23 +1634,22 @@ var LandingPage = props => {
   var moreArea = showMoreBuiltWith ? expandedMore : moreButton
   const logoImage = require('./logo.svg');
   const licenseLink = (text, link) => <StyledLink style={{color: "white"}} href={link}>{text}</StyledLink>
+  var halfMargin = "28px" // half of THEME.sizing.scale1400
   var footer = <>
-    <div style={{height: "1px", width: "100%", backgroundColor: THEME.colors.colorSecondary}}></div>
-    <div style={{display: "grid", gridTemplateColumns: "auto 1fr", columnGap: THEME.sizing.scale1000, padding: THEME.sizing.scale1400, backgroundColor: THEME.colors.colorSecondary, alignItems: "center"}}>
-      <img src={logoImage} height="150px"/>
-      <div>
+    <div style={{display: "flex", justifyContent: "start", padding: halfMargin, backgroundColor: THEME.colors.colorSecondary, alignItems: "center", flexWrap: "wrap"}}>
+      <MediaQueryBlock range={[800, null]}>
+        <img src={logoImage} height="150px" style={{margin: halfMargin}}/>
+      </MediaQueryBlock>
+      <div style={{margin: halfMargin}}>
         <HeadingXSmall style={{color: "white", margin: "10px"}}>
           Polytope Inc.
         </HeadingXSmall>
         <HeadingXSmall style={{color: "white", margin: "10px"}}>
           Created by cameronfr.
         </HeadingXSmall>
-        <div style={{margin: "10px", display: "flex", alignItems: "center"}}>
-          <FeedbackButton />
-          <HeadingXSmall style={{color: "white", margin: "0px 10px"}}>
-            {"or use our"} {licenseLink("Discord", "https://discord.gg/XfBPAxv")}
-          </HeadingXSmall>
-        </div>
+        <HeadingXSmall style={{color: "white", margin: "0px 10px"}}>
+          {"Talk to us on "} {licenseLink("Discord", "https://discord.gg/XfBPAxv")}
+        </HeadingXSmall>
         <HeadingXSmall style={{color: "white", margin: "10px"}}>
           {"Built with"}{" "}
           {licenseLink("p5ycho", "https://github.com/kgolid/p5ycho/")},{" "}
@@ -1659,8 +1663,9 @@ var LandingPage = props => {
 
   //buttons to go start
   var buttonMargin = THEME.sizing.scale1000
-  var buttonProps = {kind: KIND.default, shape: SHAPE.pill, size: SIZE.large, style: {marginLeft: buttonMargin, marginRight: buttonMargin, width: "300px"}}
+  var buttonProps = {kind: KIND.default, shape: SHAPE.pill, size: SIZE.large, style: {width: "100%"}}
   var goButton = (text, link) => <>
+    <div style={{flexGrow: "1", paddingLeft: buttonMargin, paddingRight: buttonMargin, paddingTop: buttonMargin, maxWidth: "300px"}}>
       <RouterLink to={link}>
         <Button {...buttonProps}>
           <div style={{display: "flex", alignItems: "center", justifyContent: "center"}}>
@@ -1669,9 +1674,10 @@ var LandingPage = props => {
           </div>
         </Button>
       </RouterLink>
+    </div>
   </>
   var buttonArea = <>
-    <div style={{display: "flex", alignItems: "center", justifyContent: "center", margin: "10px"}}>
+    <div style={{display: "flex", alignItems: "center", justifyContent: "center", marginTop: `-${buttonMargin}`, flexWrap: "wrap"}}>
       {goButton("Explore Items", "/home")}
       {goButton("Create An Item", "/newItem")}
     </div>
@@ -1702,8 +1708,8 @@ var LandingPage = props => {
       </HeadingLarge>
       {buttonArea}
       <div style={{display: "flex", flexAlign: "center", justifyContent: "center"}}>
-        <div style={{borderRadius: "20px", overflow: "hidden", boxShadow: "0px 0px 3px #ccc"}}>
-          <iframe width="610" height="340" src="https://www.youtube.com/embed/eCk2OV6IRnc?mute=1&rel=0" frameBorder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
+        <div style={{borderRadius: "20px", overflow: "hidden", boxShadow: "0px 0px 3px #ccc", height: "39vw", width: "70vw", maxWidth: "680px", maxHeight: "383px"}}>
+          <iframe style={{height: "100%", width: "100%"}} src="https://www.youtube.com/embed/eCk2OV6IRnc?mute=1&rel=0" frameBorder="0" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
         </div>
       </div>
       <DisplayXSmall color={["colorSecondary"]} style={{textAlign: "center"}}>
@@ -1798,21 +1804,46 @@ var FeedbackButton = props => {
   return feedbackArea
 }
 
+var MediaQueryBlock = props => {
+  var [isVisible, setIsVisible] = React.useState(false)
+
+  var reevaluateVisibility = () => {
+    var width = document.documentElement.clientWidth // innerWidth changes on zoom on mobile
+    var range = props.range
+    var visible = (range[0] == null || width >= range[0]) && (range[1] == null || width < range[1])
+    setIsVisible(visible)
+  }
+
+  React.useEffect(() => {
+    window.addEventListener("resize", reevaluateVisibility)
+    reevaluateVisibility()
+    var cleanup = () => window.removeEventListener("resize", reevaluateVisibility)
+    return cleanup
+  }, [props.range])
+
+  var html = <>
+    {props.children}
+  </>
+
+  return (isVisible && html)
+
+}
+
 var Header = props => {
 
-  var searchBefore = (
-    <div style={{display: 'flex', alignItems: 'center', paddingLeft: THEME.sizing.scale500}}>
-      <Search size="18px" />
-    </div>)
-  var searchBar = (
-    <Input
-      overrides={{Before: () => searchBefore}}
-      onChange={() => props.search}
-      placeholder={"search"}>
-    </Input>)
-  var onSearchSubmit = e => {
-    e.preventDefault()
-  }
+  // var searchBefore = (
+  //   <div style={{display: 'flex', alignItems: 'center', paddingLeft: THEME.sizing.scale500}}>
+  //     <Search size="18px" />
+  //   </div>)
+  // var searchBar = (
+  //   <Input
+  //     overrides={{Before: () => searchBefore}}
+  //     onChange={() => props.search}
+  //     placeholder={"search"}>
+  //   </Input>)
+  // var onSearchSubmit = e => {
+  //   e.preventDefault()
+  // }
 
   var profileArea
   var userAddress = useGetFromDatastore({kind: "web3Stuff", id: "useraddress"})
@@ -1826,16 +1857,68 @@ var Header = props => {
 
   const farSideMargins = THEME.sizing.scale1400
 
-  return <>
+  // header name -> logo collapsing
+  var logoImage = require("./logo.svg")
+  var headerLogo = <>
+    <div style={{display: "flex", justifyContent: "center", alignItems: "center", height: "64px", width: "64px", boxSizing: "border-box", padding: "5px"}}>
+      <div style={{flexGrow: "1", padding: "7px", borderRadius: "100%", boxShadow: "0px 0px 3px #ccc"}}>
+        <img src={logoImage}></img>
+      </div>
+    </div>
+  </>
+  // only medium +
+  var headerName = <>
+    <DisplayMedium
+    style={{userSelect: "none", cursor: "pointer", paddingLeft: "0"}}>
+      Polytope
+    </DisplayMedium>
+  </>
+  const brandingSwapWidth = 880
+  var branding = <>
+    <RouterLink to={"/"} >
+      <MediaQueryBlock range={[brandingSwapWidth, null]}>
+        {headerName}
+      </MediaQueryBlock>
+      <MediaQueryBlock range={[0,brandingSwapWidth]}>
+        {headerLogo}
+      </MediaQueryBlock>
+    </RouterLink>
+  </>
+
+  var homeButton = <>
+  <RouterLink to={"/home"}>
+    <Button kind={KIND.minimal} size={SIZE.default}>
+      Home
+    </Button>
+  </RouterLink>
+  </>
+  var worldButton = <>
+    <RouterLink to={"/world"}>
+      <Button kind={KIND.minimal} size={SIZE.default}>
+        World
+      </Button>
+    </RouterLink>
+  </>
+  var discordButton = <>
+  <StyledLink href="https://discord.gg/XfBPAxv" style={{textDecoration: "none"}}>
+    <Button kind={KIND.minimal} size={SIZE.default}>
+      Discord
+    </Button>
+  </StyledLink>
+  </>
+  var createItemButton = <>
+  <RouterLink to={"/newItem"}>
+    <Button kind={KIND.minimal} size={SIZE.default}>
+      Create Item
+    </Button>
+  </RouterLink>
+  </>
+
+  var fullWidthHeader = <>
     <HeaderNavigation style={{backgroundColor: "white"}}>
       <StyledNavigationList $align={ALIGN.left} style={{marginLeft: farSideMargins}}>
         <StyledNavigationItem style={{paddingLeft: "0"}}>
-          <RouterLink to={"/"} >
-            <DisplayMedium
-              style={{userSelect: "none", cursor: "pointer", paddingLeft: "0"}}>
-              Polytope
-            </DisplayMedium>
-          </RouterLink>
+          {branding}
         </StyledNavigationItem>
       </StyledNavigationList>
       <StyledNavigationList $align={ALIGN.center}>
@@ -1847,32 +1930,16 @@ var Header = props => {
       </StyledNavigationList>
       <StyledNavigationList $align={ALIGN.right}>
         <StyledNavigationItem style={{paddingLeft: "0px"}}>
-          <RouterLink to={"/home"}>
-            <Button kind={KIND.minimal} size={SIZE.default}>
-              Home
-            </Button>
-          </RouterLink>
+          {homeButton}
         </StyledNavigationItem>
-        <StyledNavigationItem style={{paddingLeft: "0"}}>
-          <RouterLink to={"/world"}>
-            <Button kind={KIND.minimal} size={SIZE.default}>
-              World
-            </Button>
-          </RouterLink>
+        <StyledNavigationItem style={{paddingLeft: "0px"}}>
+          {worldButton}
         </StyledNavigationItem>
-        <StyledNavigationItem style={{paddingLeft: "0"}}>
-          <StyledLink href="https://discord.gg/XfBPAxv" style={{textDecoration: "none"}}>
-          <Button kind={KIND.minimal} size={SIZE.default}>
-            Discord
-          </Button>
-          </StyledLink>
+        <StyledNavigationItem style={{paddingLeft: "0px"}}>
+          {discordButton}
         </StyledNavigationItem>
-        <StyledNavigationItem style={{paddingLeft: "0"}}>
-          <RouterLink to={"/newItem"}>
-          <Button kind={KIND.minimal} size={SIZE.default}>
-            Create Item
-          </Button>
-          </RouterLink>
+        <StyledNavigationItem style={{paddingLeft: "0px"}}>
+          {createItemButton}
         </StyledNavigationItem>
       </StyledNavigationList>
       <StyledNavigationList $align={ALIGN.right} style={{marginRight: farSideMargins}}>
@@ -1882,6 +1949,36 @@ var Header = props => {
       </StyledNavigationList>
     </HeaderNavigation>
   </>
+
+  var mobileHeader = <>
+    <div style={{backgroundColor: "white", width: "100%", paddingTop: "12px", borderBottom: "1px solid #ccc"}}>
+      <div style={{paddingLeft: "12px", paddingRight: "12px", width: "100%", boxSizing: "border-box"}}>
+        <div style={{display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+          {branding}
+          {profileArea}
+        </div>
+        <div style={{display: "flex", justifyContent: "space-between", alignItems: "center"}}>
+          {homeButton}
+          {worldButton}
+          {discordButton}
+          {createItemButton}
+        </div>
+      </div>
+    </div>
+  </>
+
+  const headerSwapSize = 760
+  var header = <>
+    <MediaQueryBlock range={[0, headerSwapSize]}>
+      {mobileHeader}
+    </MediaQueryBlock>
+    <MediaQueryBlock range={[headerSwapSize, null]}>
+      {fullWidthHeader}
+    </MediaQueryBlock>
+  </>
+
+
+  return header
 }
 
 var RouterLink = props => {
