@@ -1133,17 +1133,22 @@ var UserProfile = props => {
   if (name) {document.title = `Polytope | ${name}`}
   const profilePicSize = 200
 
-  return <>
+  var isMobile = useMediaQuery([0, 700])
+
+  var profileArea = <>
+    <div style={{display: "grid", gridTemplateColumns: "auto", textAlign:"center", rowGap: "15px"}}>
+      <canvas ref={canvasRef} style={{height: profilePicSize+"px", width: profilePicSize+"px", borderRadius: (profilePicSize/2)+"px", boxShadow: "0px 0px 5px #ccc", backgroundColor: "#eee"}}/>
+      {nameArea}
+      <LabelSmall style={{overflow: "auto"}} color={["contentSecondary"]}>
+        {props.id}
+      </LabelSmall>
+      {marketContractApprovalArea}
+    </div>
+  </>
+  var desktopHtml = <>
     <div style={{display: "grid", gridTemplateColumns: "auto 1fr", height: "100%"}}>
       <div style={{width: "200px", marginLeft: THEME.sizing.scale1400, marginTop: THEME.sizing.scale1400}}>
-        <div style={{display: "grid", gridTemplateColumns: "auto", textAlign:"center", rowGap: "15px"}}>
-          <canvas ref={canvasRef} style={{height: profilePicSize+"px", width: profilePicSize+"px", borderRadius: (profilePicSize/2)+"px", boxShadow: "0px 0px 5px #ccc", backgroundColor: "#eee"}}/>
-          {nameArea}
-          <LabelSmall style={{overflow: "auto"}} color={["contentSecondary"]}>
-            {props.id}
-          </LabelSmall>
-          {marketContractApprovalArea}
-        </div>
+        {profileArea}
       </div>
       <div style={{position: "relative"}}>
         <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0", overflow: "auto"}}>
@@ -1152,6 +1157,22 @@ var UserProfile = props => {
       </div>
     </div>
   </>
+  var mobileHtml = <>
+    <div style={{position: "relative", height: "100%"}}>
+      <div style={{position: "absolute", top: "0", left: "0", bottom: "0", right: "0", overflow: "auto"}}>
+        <div style={{display: "grid", gridTemplateRows: "min-content auto", justifyContent: "center",justifyItems: "center"}}>
+          <div style={{width: "200px", marginTop: THEME.sizing.scale1400}}>
+            {profileArea}
+          </div>
+          <div style={{width: "100vw"}}>
+            <Listings sorting={{type: "byOwner", id: props.id}} />
+          </div>
+        </div>
+      </div>
+    </div>
+  </>
+
+  return (isMobile ? mobileHtml : desktopHtml)
 }
 
 var Listings = props => {
@@ -2747,6 +2768,7 @@ var WorldMode = props =>  {
 
   var urlParams = new URLSearchParams(location.search);
   var locationId = urlParams.get("id") // same as item id.
+  var isMobile = useMediaQuery([0, 780])
 
   document.title = `Polytope | World`
 
@@ -2901,7 +2923,7 @@ var WorldMode = props =>  {
 
     var cleanup = () => cleanupFunctions.forEach(f => f())
     return cleanup
-  }, [])
+  }, [isMobile])
 
   var itemInfoArea = <>
     <ItemDetailsPanel id={currentViewedItem && currentViewedItem.id} />
@@ -2909,27 +2931,45 @@ var WorldMode = props =>  {
   </>
   var label
   var loadingInfoPanel = <>
-    <div style={{maxWidth: "300px", display: "grid", rowGap: THEME.sizing.scale1000, gridTemplateRows: "min-content min-content"}}>
+    <div style={{display: "grid", rowGap: THEME.sizing.scale1000, gridTemplateRows: "min-content min-content"}}>
       <DisplaySmall>World</DisplaySmall>
       <LabelLarge color={["colorSecondary"]} style={{lineHeight: "2em", fontWeight: "400"}}>The world is currently loading. This may take a couple of seconds.</LabelLarge>
       <LabelLarge color={["colorSecondary"]} style={{lineHeight: "2em", fontWeight: "400"}}>Polytope World is a space full of works by artists on Polytope.</LabelLarge>
     </div>
   </>
 
+  var canvasAndControls = <>
+    <div style={{position: "absolute", top:"10px", right: "10px"}}>
+      <ControlsHelpTooltip hideEditControls hideFly/>
+    </div>
+    <div style={{position: "absolute", top:"10px", left: "10px"}}>
+      {isLoading && <Spinner size={"32px"}/>}
+    </div>
+    <canvas style={{width: "100%", height: "100%"}} ref={canvasRef}/>
+  </>
+  var desktopHtml = <>
+    <div style={{display: "grid", gridTemplateColumns: "minmax(100px, 810px) 320px", padding: THEME.sizing.scale1400, columnGap: THEME.sizing.scale1400, height: "100%", boxSizing: "border-box", justifyContent: "center", maxHeight: "700px"}}>
+      <div ref={canvasContainerRef} style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "unset", minWidth: "200px", maxWidth: "810px", maxHeight: "610px", height: "100%"}}>
+        {canvasAndControls}
+      </div>
+      {currentViewedItem ? itemInfoArea : loadingInfoPanel}
+    </div>
+  </>
+  var halfMargin = "28px" // half of theme.sizing.scale1400
+  var mobileHtml = <>
+  <div style={{display: "flex", flexWrap: "wrap", justifyContent: "center"}}>
+    <div style={{width: "100vw", height: "100vw", backgroundColor: "#ccc"}} ref={canvasContainerRef}>
+      {canvasAndControls}
+    </div>
+    <div style={{margin: halfMargin}}>
+      {currentViewedItem ? itemInfoArea : loadingInfoPanel}
+    </div>
+  </div>
+  </>
+
   var html = <>
     <div style={{width: "100%", height:"100%"}}>
-      <div style={{display: "grid", gridTemplateColumns: "minmax(100px, 810px) 320px", padding: THEME.sizing.scale1400, columnGap: THEME.sizing.scale1400, height: "100%", boxSizing: "border-box", justifyContent: "center", maxHeight: "700px"}}>
-        <div ref={canvasContainerRef} style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "unset", minWidth: "200px", maxWidth: "810px", maxHeight: "610px", height: "100%"}}>
-          <div style={{position: "absolute", top:"10px", right: "10px"}}>
-            <ControlsHelpTooltip hideEditControls hideFly/>
-          </div>
-          <div style={{position: "absolute", top:"10px", left: "10px"}}>
-            {isLoading && <Spinner size={"32px"}/>}
-          </div>
-          <canvas style={{width: "100%", height: "100%"}} ref={canvasRef}/>
-        </div>
-        {currentViewedItem ? itemInfoArea : loadingInfoPanel}
-      </div>
+      {isMobile ? mobileHtml : desktopHtml}
     </div>
   </>
 
