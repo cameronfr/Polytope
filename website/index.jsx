@@ -1192,6 +1192,7 @@ var Listings = props => {
 
 var ListingCard = props => {
   const canvasRef = React.useRef()
+  const cardRef = React.useRef()
   var item = useGetFromDatastore({id: props.id, kind: "item", dontUse: props.listingData})
   item = props.listingData || item
 
@@ -1236,7 +1237,9 @@ var ListingCard = props => {
         enableRotation()
       } else {
         addEventListener(canvasRef.current, "mouseover", e => enableRotation())
+        addEventListener(cardRef.current, "touchstart", e => enableRotation())
         addEventListener(canvasRef.current, "mouseleave", e => window.cancelAnimationFrame(animationFrameRequestId))
+        addEventListener(cardRef.current, "touchend", e => window.cancelAnimationFrame(animationFrameRequestId))
       }
     }
     var cancelBlockDisplay = () => {
@@ -1277,7 +1280,7 @@ var ListingCard = props => {
   }
 
   var card = <>
-    <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", backfaceVisibility: "hidden", position: "relative", zIndex: "1", width: "min-content",/* width: imageSize+"px",*/ position: "relative", backgroundColor: "eee"}}>
+    <div style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", backfaceVisibility: "hidden", position: "relative", zIndex: "1", width: "min-content",/* width: imageSize+"px",*/ position: "relative", backgroundColor: "eee"}} ref={cardRef}>
       <div style={{position: "absolute", right: "10px", top: "10px"}}>
         <UserAvatar id={ownerId} size={35} />
       </div>
@@ -1494,35 +1497,40 @@ var ItemDetailsPanel = props => {
   var allFieldsValid = priceValid
   var isForSale = item.isForSale
 
+  var bottomFieldStyle = {height: "48px", flexGrow: "1", whiteSpace: "nowrap", boxSizing: "border-box"}
+
   var onClickViewer = () => buyItemFlow({setWaiting, setError: () => null}, {itemId: item.id, priceBN: BigNumber(item.price)})
   var buyArea = <>
-      <div style={{display: "flex", alignItems: "center", justifyContent: "space-around", border: "1px solid #000"}}>
+      <div style={{display: "flex", alignItems: "center", justifyContent: "space-around", border: "1px solid #000", ...bottomFieldStyle}}>
         <LabelLarge>{isForSale ? weiStringToEthString(item.price) + " ETH" : "Not For Sale"}</LabelLarge>
       </div>
-      {isForSale && <Button kind={KIND.primary} size={SIZE.default} onClick={onClickViewer}>Trade</Button>}
+      {isForSale && <Button kind={KIND.primary} size={SIZE.default} onClick={onClickViewer} style={bottomFieldStyle}>Trade</Button>}
   </>
   var onClickOwner = () => setMarketInfoFlow({setWaiting, setError: () => null}, {isForSale: !isForSale, priceBN, itemId: item.id})
+
   var setNotForSaleArea = <>
-      <div style={{display: "flex", alignItems: "center", justifyContent: "space-around", border: "1px solid #000"}}>
-        <LabelLarge style={{textAlign: "center"}}>{"Listed for " + weiStringToEthString(item.price) + " ETH"}</LabelLarge>
+      <div style={{display: "flex", alignItems: "center", justifyContent: "space-around", border: "1px solid #000", ...bottomFieldStyle}}>
+        <LabelLarge>{"Listed for " + weiStringToEthString(item.price) + " ETH"}</LabelLarge>
       </div>
-      <Button kind={KIND.primary} size={SIZE.default} onClick={onClickOwner}>Remove from market</Button>
+      <Button kind={KIND.primary} size={SIZE.default} onClick={onClickOwner} style={bottomFieldStyle}>Remove from market</Button>
   </>
   var setForSaleArea = <>
-    <Input size={SIZE.default} endEnhancer={"ETH"} onChange={e => setPrice(e.target.value)} error={price && !priceValid}></Input>
-    <Button style={{marginLeft: THEME.sizing.scale600}} kind={KIND.primary} size={SIZE.default} disabled={!allFieldsValid} onClick={onClickOwner}>List on market</Button>
+    <div style={bottomFieldStyle}>
+      <Input size={SIZE.default} endEnhancer={"ETH"} onChange={e => setPrice(e.target.value)} error={price && !priceValid}></Input>
+    </div>
+    <Button style={{/*marginLeft: THEME.sizing.scale600,*/ ...bottomFieldStyle}} kind={KIND.primary} size={SIZE.default} disabled={!allFieldsValid} onClick={onClickOwner} style={{flexGrow: "1"}}>List on market</Button>
   </>
   var waitingArea = <>
     <div style={{display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #000"}}>
       <Spinner size={24}/>
-      <LabelLarge style={{marginLeft: THEME.sizing.scale600}}>
+      <LabelLarge style={{marginLeft: THEME.sizing.scale600, height: "48px"}}>
         {waiting}
       </LabelLarge>
     </div>
   </>
   var nonWaitingStuff = viewerIsOwner ? (isForSale ? setNotForSaleArea : setForSaleArea) : buyArea
   var marketArea = <>
-    <div style={{display: "grid", gridAutoFlow: "column", height: "min-content", height: "48px"}}>
+    <div style={{display: "flex", height: "min-content", flexWrap: "wrap", marginTop: "25px"}}>
       {waiting ? waitingArea : nonWaitingStuff}
     </div>
   </>
@@ -2749,7 +2757,7 @@ var WorldMode = props =>  {
 
   var html = <>
     <div style={{width: "100%", height:"100%"}}>
-      <div style={{display: "grid", gridTemplateColumns: "minmax(100px, 810px) 300px", padding: THEME.sizing.scale1400, columnGap: THEME.sizing.scale1400, height: "100%", boxSizing: "border-box", justifyContent: "center", maxHeight: "700px"}}>
+      <div style={{display: "grid", gridTemplateColumns: "minmax(100px, 810px) 320px", padding: THEME.sizing.scale1400, columnGap: THEME.sizing.scale1400, height: "100%", boxSizing: "border-box", justifyContent: "center", maxHeight: "700px"}}>
         <div ref={canvasContainerRef} style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "unset", minWidth: "200px", maxWidth: "810px", maxHeight: "610px", height: "100%"}}>
           <div style={{position: "absolute", top:"10px", right: "10px"}}>
             <ControlsHelpTooltip hideEditControls hideFly/>
@@ -3669,6 +3677,16 @@ class FlyControls {
     this.addEventListener(this.domElement,"mouseup", e => {
     })
     this.addEventListener(this.domElement, "mousemove", e => this.capturingMouseMovement && this.updateMouseBuffer(e.movementX, e.movementY))
+    this.addEventListener(this.domElement, "touchmove", e => {
+      e.preventDefault()
+      var touch = e.touches[0]
+      if (this.lastTouch && touch && this.lastTouch.identifier == touch.identifier) {
+        var movementX = touch.pageX - this.lastTouch.pageX
+        var movementY = touch.pageY - this.lastTouch.pageY
+        this.updateMouseBuffer(movementX, movementY)
+      }
+      this.lastTouch = touch
+    })
 
     this.keyState = {}
     this.mouseMoveBuffer = {x: 0, y: 0}
