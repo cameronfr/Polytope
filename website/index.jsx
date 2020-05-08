@@ -2156,7 +2156,7 @@ class VoxelRenderer {
         const float shadowLightness = 3.0;
         ambientOcclusionAlpha = 1.0 - pow(1.0 - avgDist, shadowClosenessToSide)/shadowLightness;
         if (ambientOcclusionAlpha < 0.1) {
-          ambientOcclusionAlpha = 1.0; // patch for bug on rare? graphics cards where alpha is 0 always.
+          ambientOcclusionAlpha = 1.0; // jank patch for bug on rare? graphics cards where alpha is 0 always.
         }
         return ambientOcclusionAlpha;
       }
@@ -3182,6 +3182,7 @@ class GameControlPanel extends React.Component {
     var newToggleState = !this.state.buildPlate
     var blockId = newToggleState == true ? 1 : 0
     var gen = (new WorldGenerator({blocks: this.gameState.blocks})).bottomPlate(blockId)
+    this.gameState.setBlocks(gen.blocks)
     this.setState({buildPlate: newToggleState})
   }
 
