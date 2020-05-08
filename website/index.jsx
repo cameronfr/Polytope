@@ -589,11 +589,12 @@ class Datastore {
     if (blocks.length != (16*16*16*1)) {throw "blocks metadata invalid"}
     // might want other checks like above, goal is that if data that was hashed is different, what shows up on screen in the game should be different.
 
-    var processedBlocks = this.processRawBlocks(blocks)
+    var blockArray = ndarray(new Uint8Array(blocks), [16,16,16,1])
+
     var item = {
       name,
       description,
-      blocks: processedBlocks,
+      blocks: blockArray,
       ...tokenItem,
       ...marketItem,
     }
@@ -604,14 +605,14 @@ class Datastore {
 
   }
 
-  processRawBlocks(blocksObject) {
-    var rawBlocks = ndarray(new Uint8Array(blocksObject), [16,16,16,1])
-    var blocks = ndarray(new Uint8Array(16*17*16*4), [16, 17, 16, 4])
-    var nonFloorSlice = blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 1)
-    np.assign(nonFloorSlice, rawBlocks)
-    return blocks
-  }
-
+  // processRawBlocks(blocksObject) {
+  //   var rawBlocks = ndarray(new Uint8Array(blocksObject), [16,16,16,1])
+  //   var blocks = ndarray(new Uint8Array(16*16*16*4), [16, 16, 16, 4])
+  //   var blockIDSlice = blocks.lo(0, 0, 0, 0).hi(16, 16, 16, 1)
+  //   np.assign(blockIDSlice, rawBlocks)
+  //   return blocks
+  // }
+  //
   addDataSubscription({id, kind, callback}) {
     id = id.toLowerCase()
     this.subscriptionCounter += 1
@@ -933,6 +934,7 @@ class App extends React.Component {
               <LandingPage path="/"/>
               <Listing path="/item/:id"/>
               <VoxelEditor path="/newItem"/>
+              <WorldMode path="/world"/>
             </Router>
           </div>
         </div>
@@ -1203,13 +1205,17 @@ var ListingCard = props => {
     }
     var renderId
     var animationFrameRequestId
+    var gameState
 
     var setupBlockdisplay = async () => {
       var {blocks} = item
+      var blockData = ndarray(new Uint8Array(16*16*16*4), [16, 16, 16, 4])
+      var blockIDSlice = blockData.lo(0, 0, 0, 0).hi(16, 16, 16, 1)
+      np.assign(blockIDSlice, blocks)
 
-      var gameState = new GameState({blocks})
-      const lookAtPos = new Vector3(gameState.worldSize.x/2, 10, gameState.worldSize.y/2)
-      var orbiter = new AutomaticOrbiter(gameState.camera, {center: lookAtPos.clone(), height: 8, period: 10, radius: 1.2*gameState.worldSize.x/2, lookAtPos})
+      gameState = new GameState({blocks: blockData})
+      const lookAtPos = new Vector3(gameState.worldSize.x/2, 8, gameState.worldSize.y/2)
+      var orbiter = new AutomaticOrbiter(gameState.camera, {center: lookAtPos.clone(), height: 13, period: 10, radius: 1.5*gameState.worldSize.x/2, lookAtPos})
       orbiter.setRotationToTime(0)
       renderId = props.voxelRenderer.addTarget({gameState: gameState, element: canvasRef.current})
 
@@ -1237,6 +1243,7 @@ var ListingCard = props => {
       blockDisplayListeners.map(([obj, eventName, func]) => obj.removeEventListener(eventName, func))
       window.cancelAnimationFrame(animationFrameRequestId)
       props.voxelRenderer.removeTarget(renderId)
+      gameState.destroy()
     }
     setupBlockdisplay()
     return cancelBlockDisplay
@@ -1354,6 +1361,7 @@ var Listing = props => {
   var item = useGetFromDatastore({id: props.id, kind: "item"})
 
   var canvasContainerRef = React.useRef()
+  var canvasRef = React.useRef()
   // Game setup and destroy
   React.useEffect(() => {
     if (!item.blocks) {return}
@@ -1361,19 +1369,20 @@ var Listing = props => {
     var renderID
     var voxelRenderer
     var setupGame = async () => {
-      // have to make a child because regl destroys the canvas on regl.destroy
-      var canvas = document.createElement('canvas');
-      canvas.style.cssText = "width: 100%; height: 100%;"
-      canvasContainerRef.current.appendChild(canvas)
+      var canvas = canvasRef.current
       voxelRenderer = new VoxelRenderer({pixelRatio:1, canvas:canvas})
 
       var {blocks} = item
-      var gameState = new GameState({blocks})
+      var blockData = ndarray(new Uint8Array(16*16*16*4), [16, 16, 16, 4])
+      var blockIDSlice = blockData.lo(0, 0, 0, 0).hi(16, 16, 16, 1)
+      np.assign(blockIDSlice, blocks)
+
+      var gameState = new GameState({blocks: blockData})
       var flyControls = new FlyControls({gameState, domElement: canvas, interactionDisabled: true})
 
       // set initial position
-      const lookAtPos = new Vector3(gameState.worldSize.x/2, 10, gameState.worldSize.y/2)
-      var orbiter = new AutomaticOrbiter(gameState.camera, {center: lookAtPos.clone(), height: 8, period: 10, radius: 1.2*gameState.worldSize.x/2, lookAtPos})
+      const lookAtPos = new Vector3(gameState.worldSize.x/2, 8, gameState.worldSize.y/2)
+      var orbiter = new AutomaticOrbiter(gameState.camera, {center: lookAtPos.clone(), height: 13, period: 10, radius: 1.5*gameState.worldSize.x/2, lookAtPos})
       orbiter.setRotationToTime(0)
 
       renderID = voxelRenderer.addTarget({gameState: gameState, element: canvas})
@@ -1394,6 +1403,38 @@ var Listing = props => {
     return cleanupGame
   }, [props.id, item])
 
+  // setting window title
+  if (item.name) {document.title = `Polytope | ${item.name}`}
+
+  var canvasArea = <>
+    <div style={{width: viewAreaSize+"px", height: viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", position: "relative", zIndex: "1"}} ref={canvasContainerRef}>
+      <div style={{position: "absolute", top:"10px", right: "10px"}}>
+        <ControlsHelpTooltip hideEditControls/>
+      </div>
+      <canvas style={{height: "100%", width: "100%"}} ref={canvasRef}/>
+    </div>
+  </>
+
+  return <>
+    <div style={{display: "flex", justifyContent: "center", alignItems: "center"}}>
+      <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", padding: THEME.sizing.scale1400, columnGap: THEME.sizing.scale1400}}>
+        <div style={{display: "grid", gridTemplateColumns: "min-content min-content"}}>
+          {/*TODO: make this accessible */}
+          <ArrowLeft size={40} onClick={() => window.history.back()} style={{color: "black", cursor: "pointer"}}/>
+          {canvasArea}
+        </div>
+        <ItemDetailsPanel id={props.id}/>
+      </div>
+    </div>
+  </>
+}
+
+// owner, hash, buy option, etc.
+var ItemDetailsPanel = props => {
+  var item = useGetFromDatastore({id: props.id, kind: "item"})
+
+  const viewAreaSize = 500
+
   // Downloading
   var downloadVox = () => {
     var {blocks} = item
@@ -1411,22 +1452,9 @@ var Listing = props => {
   var userAddress = useGetFromDatastore({kind: "web3Stuff", id: "useraddress"})
   var viewerIsOwner = item.ownerId == userAddress
 
-  // setting window title
-  if (item.name) {document.title = `Polytope | ${item.name}`}
-
   var dateCreated = new Date(0)
   dateCreated.setUTCSeconds(item.dateCreated)
   var dateString = "Created " + dateCreated.toLocaleString(undefined, {month: "long", year: "numeric", day: "numeric", hour: "numeric", minute: "numeric"})
-  const blockMargins = 28
-
-  var canvasArea = <>
-    <div style={{width: viewAreaSize+"px", height: viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", margin: blockMargins+"px", position: "relative", zIndex: "1"}} ref={canvasContainerRef}>
-      <div style={{position: "absolute", top:"10px", right: "10px"}}>
-        <ControlsHelpTooltip hideEditControls/>
-      </div>
-      {/*Canvas is inserted here*/}
-    </div>
-  </>
 
   var informationArea = <>
     <div style={{/*width: viewAreaSize+"px",*/flexBasis: "min-content", flexGrow: "1", maxWidth: viewAreaSize + "px", display: "grid", height: "min-content"}}>
@@ -1476,7 +1504,7 @@ var Listing = props => {
   var onClickOwner = () => setMarketInfoFlow({setWaiting, setError: () => null}, {isForSale: !isForSale, priceBN, itemId: item.id})
   var setNotForSaleArea = <>
       <div style={{display: "flex", alignItems: "center", justifyContent: "space-around", border: "1px solid #000"}}>
-        <LabelLarge>{"Listed for " + weiStringToEthString(item.price) + " ETH"}</LabelLarge>
+        <LabelLarge style={{textAlign: "center"}}>{"Listed for " + weiStringToEthString(item.price) + " ETH"}</LabelLarge>
       </div>
       <Button kind={KIND.primary} size={SIZE.default} onClick={onClickOwner}>Remove from market</Button>
   </>
@@ -1499,19 +1527,14 @@ var Listing = props => {
     </div>
   </>
 
-  return <>
-    <div style={{display: "flex", justifyContent: "center", alignItems: "center", padding: "28px"}}>
-      <div style={{display: "flex", flexWrap: "nowrap"}}>
-        {/*TODO: make this accessible */}
-        <ArrowLeft size={40} onClick={() => window.history.back()} style={{color: "black", cursor: "pointer", marginTop: blockMargins+"px"}}/>
-        {canvasArea}
-        <div style={{display: "grid", gridTemplateRows: "min-content 1fr", alignItems: "end", margin: blockMargins+"px"}}>
-          {informationArea}
-          {marketArea}
-        </div>
-      </div>
+  var html = <>
+    <div style={{display: "grid", gridTemplateRows: "min-content 1fr", alignItems: "end", height: "100%"}}>
+      {informationArea}
+      {marketArea}
     </div>
   </>
+
+  return html
 }
 
 var LandingPage = props => {
@@ -1527,12 +1550,14 @@ var LandingPage = props => {
   var isWaitingWeb3 = !useGetFromDatastore({kind: "web3Stuff", id: "web3"})
   // can't add [isWaitingWeb3] into React useffect second arg -- doesn't change in func for some reason
   React.useEffect(() => {
+    var cancelled = false
     var getDisplayCards = async () => {
       var tokenIds = await datastore.getSorting({type: "random"})
       tokenIds = tokenIds.slice(0, 3)
-      setCardItemIds(tokenIds)
+      !cancelled && setCardItemIds(tokenIds)
     }
     datastore.hasWeb3() && (cardItemIds.length == 0) && getDisplayCards()
+    return () => {cancelled = true}
   }, [isWaitingWeb3])
 
   // card area
@@ -1821,6 +1846,13 @@ var Header = props => {
           </RouterLink>
         </StyledNavigationItem>
         <StyledNavigationItem style={{paddingLeft: "0"}}>
+          <RouterLink to={"/world"}>
+            <Button kind={KIND.minimal} size={SIZE.default}>
+              World
+            </Button>
+          </RouterLink>
+        </StyledNavigationItem>
+        <StyledNavigationItem style={{paddingLeft: "0"}}>
           <StyledLink href="https://discord.gg/XfBPAxv" style={{textDecoration: "none"}}>
           <Button kind={KIND.minimal} size={SIZE.default}>
             Discord
@@ -1870,6 +1902,7 @@ class VoxelRenderer {
       this.canvas.style.cssText ="position: absolute; top:0; left:0; height: 10; width:10px;" //chrome behavior: copying via ctx.drawimage won't work correctly unless canvas has size
       this.canvas.style.zIndex ="-1"
       document.body.appendChild(this.canvas);
+      this.shouldRemoveCanvas = true
     } else {
       this.canvas = options.canvas
     }
@@ -2122,6 +2155,9 @@ class VoxelRenderer {
         const float shadowClosenessToSide = 7.0;
         const float shadowLightness = 3.0;
         ambientOcclusionAlpha = 1.0 - pow(1.0 - avgDist, shadowClosenessToSide)/shadowLightness;
+        if (ambientOcclusionAlpha < 0.1) {
+          ambientOcclusionAlpha = 1.0; // patch for bug on rare? graphics cards where alpha is 0 always.
+        }
         return ambientOcclusionAlpha;
       }
 
@@ -2297,12 +2333,7 @@ class VoxelRenderer {
       uniforms: {
         // This defines the color of the triangle to be a dynamic variable
         blocks: (context, props) => {
-          const worldSize = props.gameState.worldSize
-          // .data does not change for a slice, so passing scijs slices as data here won't work
-          var blocksReshape = ndarray(props.gameState.blocks.data, [worldSize.x, worldSize.y*worldSize.z, 4])
-          var blocksTexture = (this.blocksTexture && this.blocksTexture(blocksReshape)) || this.regl.texture(blocksReshape)
-          this.blocksTexture = blocksTexture
-          return blocksTexture
+          return props.gameState.getBlocksBuffer(this.regl)
         },
         worldSize: (context, props) => {
           const worldSize = props.gameState.worldSize
@@ -2373,7 +2404,8 @@ class VoxelRenderer {
     window.cancelAnimationFrame(this.animationFrameRequestID)
     this.listeners.map(([obj, eventName, func]) => obj.removeEventListener(eventName, func))
     this.regl.destroy()
-    this.canvas.remove()
+    this.regl._destroyed = true // needed to prevent double destroy, which regl doesn't like
+    this.shouldRemoveCanvas && this.canvas.remove()
   }
 
   render(targetID) {
@@ -2506,7 +2538,7 @@ class VoxelEditor extends React.Component {
         this.setState({atPublishDialog: false})
         this.controls.interactionEnabled = true
       }
-      sidebar = <PublishItemPanel onGoBack={onGoBack} rawBlocks={this.gameState.getRawBlocks()} blocks={this.gameState.getDisplayBlocks()}/>
+      sidebar = <PublishItemPanel onGoBack={onGoBack} blocks={this.gameState.getRawBlocks()}/>
     } else {
       var onContinue = () => {
         this.setState({atPublishDialog: true})
@@ -2520,7 +2552,7 @@ class VoxelEditor extends React.Component {
 
     return (
       <div style={{width: "100%", height:"100%"}}>
-        <div style={{display: "flex", padding: THEME.sizing.scale1400, boxSizing: "border-box", height: "100%", minHeight: "400px"}}>
+        <div style={{display: "flex", padding: THEME.sizing.scale1400, boxSizing: "border-box", height: "100%", minHeight: "400px", justifyContent: "center"}}>
           <div ref={this.containerRef} style={{flexGrow: "1", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "unset", minWidth: "200px", maxWidth: "810px", maxHeight: "610px"}}>
             <canvas ref={this.canvasRef} style={{height: "100%", width: "100%"}}/>
             <div style={{position: "absolute", right: "10px", top: "10px"}}>
@@ -2536,6 +2568,203 @@ class VoxelEditor extends React.Component {
       </div>
     )
   }
+}
+
+var WorldMode = props =>  {
+  var canvasContainerRef = React.useRef()
+  var canvasRef = React.useRef()
+  var [currentViewedItem, setCurrentViewedItem] = React.useState()
+  var [isLoading, setIsLoading] = React.useState(true)
+
+  var urlParams = new URLSearchParams(location.search);
+  var locationId = urlParams.get("id") // same as item id.
+
+  document.title = `Polytope | World`
+
+  var worldUpdateTick = () => {
+    //TODO:
+    //get current player position
+    // update the world (which is e.g. a fixed size of 5x5 chunks), by chopping off the chunks far from player position and adding new chunks
+    // make it seamless by updating player position at the same time
+  }
+
+  var assembleWorldGrid = async ({gameState}) => {
+
+    var ids = await datastore.getSorting({type: "new"})
+    var items = await Promise.all(ids.map(async id => {
+      var item = await datastore.getData({id, kind: "item"})
+      return item
+    }))
+    items = items.filter(x => x.blocks) // filter to valid items
+    locationId = locationId || items[0].id
+
+    var mapSizeChunks = Math.ceil(Math.sqrt(items.length)) // number of chunks per side
+
+    var itemSize = 16
+    var roadSize = 2
+    var worldWidth = (itemSize+roadSize) * mapSizeChunks + roadSize
+    var worldSize = new Vector3(worldWidth, itemSize+1, worldWidth)
+    var worldBlocks = (new WorldGenerator({worldSize})).bottomPlate().blocks
+    // ids = ids.slice(0, 25)
+    // disable optimization while stuff is loading in (or will look glitchy)
+    gameState.resetCubeRaymarchOptimization()
+    var updates = items.map(async (item, currentIdx) => {
+      // var item = await datastore.getData({id, kind: "item"})
+      var chunkIdx = [Math.floor(currentIdx / mapSizeChunks), currentIdx % mapSizeChunks]
+      var chunkPos = chunkIdx.map(idx => roadSize + (itemSize+roadSize)*idx)
+      if (item.blocks) {
+        // item id from listing not necessarily valid -- i.e. might contain no blocks bcz invalid
+        var currentSlice = worldBlocks.lo(chunkPos[0], 1, chunkPos[1], 0).hi(...item.blocks.shape)
+        np.assign(currentSlice, item.blocks)
+      }
+      if (item.id == locationId) {
+        var eps = 0.11
+        gameState.position.set(eps +chunkPos[0]- roadSize/2, 2, eps + chunkPos[1] - roadSize/2)
+        gameState.camera.lookAt(new Vector3(chunkPos[0] + itemSize/2, itemSize/2, chunkPos[1] + itemSize/2))
+        setCurrentViewedItem(item)
+      }
+      var roadSlice = worldBlocks.lo(chunkPos[0]-roadSize, 0, chunkPos[1]-roadSize,0).hi(itemSize+2*roadSize, 1, itemSize+2*roadSize, 1)
+      // move to worldgen? make worldgen work on slices?
+      for (var x =0; x<roadSlice.shape[0]; x++) {
+        for (var y=0; y<roadSlice.shape[1]; y++) {
+          for(var z=0; z<roadSlice.shape[2]; z++) {
+            var color = Math.random() < 0.2 ? 14 : 16
+            roadSlice.set(x, y, z, 0, color)
+          }
+        }
+      }
+      var centerSlice = worldBlocks.lo(chunkPos[0], 0, chunkPos[1], 0).hi(itemSize, 1, itemSize, 1)
+      np.assigns(centerSlice, 1)
+    })
+
+    var coordsToItemId = coords => {
+      var tileSize = itemSize+roadSize
+      var chunkIdx = [Math.floor(coords[0]/tileSize), Math.floor(coords[1]/tileSize)]
+      var notOnRoad = (coords[0] % tileSize > roadSize) && (coords[1] % tileSize > roadSize)
+      if (!notOnRoad) {
+        return undefined
+      }
+      var index = chunkIdx[0] * mapSizeChunks + chunkIdx[1]
+      var item = items[index]
+      return item
+    }
+    await Promise.all(updates)
+    // update cube preoptimization map
+    gameState.setBlocks(worldBlocks)
+
+    return {coordsToItemId}
+
+  }
+
+  React.useEffect(() => {
+    var cleanupFunctions = []
+    var eventListeners = []
+    var addEventListener = (obj, eventName, func) => {
+      eventListeners.push([obj, eventName, func])
+      obj.addEventListener(eventName, func)
+    }
+    cleanupFunctions.push(() => {
+      eventListeners.forEach(([obj, eventName, func]) => obj.removeEventListener(eventName, func))
+    })
+
+    var canvas = canvasRef.current
+
+    var camera = new PerspectiveCamera(95, 1.0, 0.1, 1000)
+    camera.position.set(0.01 + 10/2, 10, 0)
+    camera.lookAt(new Vector3(8, 8, 8))
+
+    var tmpBlocks = (new WorldGenerator({worldSize: new Vector3(1,1,1)})).blocks
+    var gameState = new GameState({blocks: tmpBlocks, camera})
+    var coordsToItemId
+    assembleWorldGrid({gameState}).then(ret => {
+      coordsToItemId = ret.coordsToItemId
+      setIsLoading(false)
+    })
+    var controls = new FlyControls({gameState, domElement: canvas, interactionDisabled: true, flyDisabled: true})
+
+    var resizeCamera = () => {
+      const { height, width } = canvas.getBoundingClientRect();
+      camera.aspect = width / height
+      camera.updateProjectionMatrix()
+    }
+    resizeCamera()
+    addEventListener(window, "resize", () => resizeCamera())
+
+    if (globalDebug) {
+      var stats = new Stats();
+      stats.showPanel(0);
+      canvasContainerRef.current.appendChild(stats.dom)
+    }
+
+    var voxelRenderer = new VoxelRenderer({pixelRatio: 1,canvas, worldSize: gameState.worldSize})
+    cleanupFunctions.push(() => voxelRenderer.destroy())
+    var renderTargetID = voxelRenderer.addTarget({gameState, element: canvas})
+    controls.externalTick()
+    voxelRenderer.render(renderTargetID)
+
+    var destroyed = false
+    cleanupFunctions.push(() => {destroyed = true})
+    var frameCount = 0
+    var animationFrameRequestID
+    var lastItem // can't use react state here
+    var tick = timestamp => {
+      if (document.hasFocus() && !destroyed) {
+        globalDebug && stats.begin()
+        if (frameCount % 30 == 0) {
+          if (coordsToItemId) {
+            var item = coordsToItemId([camera.position.x, camera.position.z])
+            if ((!lastItem && item) || (item && item.id != lastItem.id)) {
+              lastItem = item
+              setCurrentViewedItem(item)
+              urlParams.set("id", item.id)
+              window.history.replaceState({}, '', `${location.pathname}?${urlParams}`);
+            }
+          }
+        }
+        controls.externalTick()
+        voxelRenderer.render(renderTargetID)
+        frameCount += 1
+        globalDebug && stats.end()
+      }
+      animationFrameRequestID = window.requestAnimationFrame(tick)
+    }
+    animationFrameRequestID = window.requestAnimationFrame(tick)
+
+    var cleanup = () => cleanupFunctions.forEach(f => f())
+    return cleanup
+  }, [])
+
+  var itemInfoArea = <>
+    <ItemDetailsPanel id={currentViewedItem && currentViewedItem.id} />
+    {/* <ItemDetailsPanel id={"0xffaf0c3efb3d05f06348c9b6ab5c3f76ae8c771411de57a74abb653d78d8f263"} /> */}
+  </>
+  var label
+  var loadingInfoPanel = <>
+    <div style={{maxWidth: "300px", display: "grid", rowGap: THEME.sizing.scale1000, gridTemplateRows: "min-content min-content"}}>
+      <DisplaySmall>World</DisplaySmall>
+      <LabelLarge color={["colorSecondary"]} style={{lineHeight: "2em", fontWeight: "400"}}>The world is currently loading. This may take a couple of seconds.</LabelLarge>
+      <LabelLarge color={["colorSecondary"]} style={{lineHeight: "2em", fontWeight: "400"}}>Polytope World is a space full of works by artists on Polytope.</LabelLarge>
+    </div>
+  </>
+
+  var html = <>
+    <div style={{width: "100%", height:"100%"}}>
+      <div style={{display: "grid", gridTemplateColumns: "minmax(100px, 810px) 300px", padding: THEME.sizing.scale1400, columnGap: THEME.sizing.scale1400, height: "100%", boxSizing: "border-box", justifyContent: "center", maxHeight: "700px"}}>
+        <div ref={canvasContainerRef} style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "unset", minWidth: "200px", maxWidth: "810px", maxHeight: "610px", height: "100%"}}>
+          <div style={{position: "absolute", top:"10px", right: "10px"}}>
+            <ControlsHelpTooltip hideEditControls hideFly/>
+          </div>
+          <div style={{position: "absolute", top:"10px", left: "10px"}}>
+            {isLoading && <Spinner size={"32px"}/>}
+          </div>
+          <canvas style={{width: "100%", height: "100%"}} ref={canvasRef}/>
+        </div>
+        {currentViewedItem ? itemInfoArea : loadingInfoPanel}
+      </div>
+    </div>
+  </>
+
+  return html
 }
 
 class WorldGenerator {
@@ -2649,6 +2878,41 @@ class GameState {
     this.position = this.camera.position
   }
 
+  getBlocksBuffer(regl) {
+    // Passed regl from renderer. If regl changes for a given gameState, bad thing will happen
+    if (!this.blockBuffer) {
+      this.regl = regl
+      const worldSize = this.worldSize
+      // .data does not change for a slice, so passing scijs slices as data here won't work
+      var blocksReshape = ndarray(this.blocks.data, [worldSize.x, worldSize.y*worldSize.z, 4])
+      var blocksTexture = regl.texture(blocksReshape)
+      this.blockBuffer = blocksTexture
+    }
+    return this.blockBuffer
+  }
+
+  destroy() {
+    this.regl && this.blockBuffer && !this.regl._destroyed && this.blockBuffer.destroy()
+  }
+
+  setBlocksData(x, y, z, i, val) {
+    const worldSize = this.worldSize
+    this.blocks.set(x, y, z, i, val)
+    // this.blockBuffer = undefined // force blockbuffer to be rebuilt when getBlocksBuffer is called
+    // If do above, will cause rebuilding every time block selection changes
+    if (this.blockBuffer) {
+      var newPixel = []
+      for (var j=0; j<4; j++) {
+        if (i == j) {
+          newPixel.push(val)
+        } else {
+          newPixel.push(this.blocks.get(x, y, z, j))
+        }
+      }
+      this.blockBuffer.subimage({width: 1, height: 1, data:newPixel}, x, y*worldSize.z + z)
+    }
+  }
+
   // precomputing how far we can send a ray from a given voxel.
   updateCubeRaymarchDistances() {
     var generateSummedAreaTable = (array4d) => {
@@ -2719,7 +2983,7 @@ class GameState {
         for (var z=0; z<shape[2]; z++) {
           var safeRaymarchDist = smallestEmptyCubeSize([x, y, z], 0, Math.min(x, y, z, shape[0]-x-1, shape[1]-y-1, shape[2]-z-1))
           // dists.push(safeRaymarchDist)
-          this.blocks.set(x, y, z, 2, safeRaymarchDist)
+          this.setBlocksData(x, y, z, 2, safeRaymarchDist)
         }
       }
     }
@@ -2760,14 +3024,6 @@ class GameState {
     return publishableBlocks
   }
 
-  //just removes build plate
-  getDisplayBlocks() {
-    var validSlice = this.blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 4)
-    var displayBlocks = ndarray(new Uint8Array(16*16*16*4), [16, 16, 16, 4])
-    np.assign(displayBlocks, validSlice)
-    return displayBlocks
-  }
-
   toVoxExporter() {
     var exporter = new VoxExporter(16, 16, 16)
     var rawBlocks = this.getRawBlocks()
@@ -2791,8 +3047,21 @@ class GameState {
     return exportFunction
   }
 
+  // sometimes want to do stuff manually
+  resetCubeRaymarchOptimization() {
+    var shape = this.blocks.shape
+    for (var x=0; x<shape[0]; x++) {
+      for (var y=0; y<shape[1]; y++) {
+        for (var z=0; z<shape[2]; z++) {
+          this.setBlocksData(x, y, z, 2, 0)
+        }
+      }
+    }
+  }
+
   // has to be called when setting this.blocks
   setBlocks(blocks) {
+    this.blockBuffer = undefined // force blockbuffer to be rebuilt when getBlocksBuffer is called
     this.blocks = blocks
     this.updateCubeRaymarchDistances(blocks)
     this.worldSize = new Vector3(...this.blocks.shape.slice(0, 3))
@@ -2820,17 +3089,17 @@ class GameState {
   }
 
   addBlock(pos, id) {
-    this.blocks.set(pos.x, pos.y, pos.z, 0, id)
+    this.setBlocksData(pos.x, pos.y, pos.z, 0, id)
     this.updateCubeRaymarchDistances(this.blocks)
   }
 
   removeBlock(pos, id) {
-    this.blocks.set(pos.x, pos.y, pos.z, 0, 0)
+    this.setBlocksData(pos.x, pos.y, pos.z, 0, 0)
     this.updateCubeRaymarchDistances(this.blocks)
   }
 
   toggleBlockOutline(pos, status) {
-    this.blocks.set(pos.x, pos.y, pos.z, 3, status ? 1 : 0)
+    this.setBlocksData(pos.x, pos.y, pos.z, 3, status ? 1 : 0)
   }
 
   withinWorldBounds(pos) {
@@ -2846,15 +3115,17 @@ class GameState {
     var fract = n => n - Math.floor(n)
     var rayPos = posVec.clone()
     var t = 0
+    var debugSteps = 0
     while(t < maxDist) {
+      debugSteps += 1
       var blockPos = rayPos.clone().floor()
       if (this.blockExists(blockPos)) {
         var hitPos = rayPos
         return [blockPos, hitPos]
       }
-      var timeToPlaneX = (dirVec.x > 0) ? (1 - fract(rayPos.x)) : (fract(rayPos.x) / Math.abs(dirVec.x))
-      var timeToPlaneY = (dirVec.y > 0) ? (1 - fract(rayPos.y)) : (fract(rayPos.y) / Math.abs(dirVec.y))
-      var timeToPlaneZ = (dirVec.z > 0) ? (1 - fract(rayPos.z)) : (fract(rayPos.z) / Math.abs(dirVec.z))
+      var timeToPlaneX = ((dirVec.x > 0) ? (1 - fract(rayPos.x)) : fract(rayPos.x)) / Math.abs(dirVec.x)
+      var timeToPlaneY = ((dirVec.y > 0) ? (1 - fract(rayPos.y)) : fract(rayPos.y)) / Math.abs(dirVec.y)
+      var timeToPlaneZ = ((dirVec.z > 0) ? (1 - fract(rayPos.z)) : fract(rayPos.z)) / Math.abs(dirVec.z)
       var deltaT = 0.00001 + Math.min(timeToPlaneX, timeToPlaneY, timeToPlaneZ)
       t += deltaT
       rayPos.add(dirVec.clone().multiplyScalar(deltaT))
@@ -3091,7 +3362,7 @@ var PublishItemPanel = props => {
         userAddress = await datastore.getData({kind: "web3Stuff", id: "userAddress"})
       }
 
-      var rawBlocks = Array.from(props.rawBlocks.data)
+      var rawBlocks = Array.from(props.blocks.data)
       var blocksHash = keccakUtf8(JSON.stringify(rawBlocks))
       var metadata = {name, description, blocks: rawBlocks}
       // note that second arg to JSON.stringify will guarantee order but will get rid of nested obj
@@ -3327,7 +3598,7 @@ class ControlsHelpTooltip extends React.Component {
           {e} {this.centeredLabel("toggle focus")}
           {breakerLine} {breakerLine}
           {wasd} {this.centeredLabel("move")}
-          {f} {this.centeredLabel("toggle walking")}
+          {!this.props.hideFly && <>{f} {this.centeredLabel("toggle walking")}</>}
           {shifte} {this.centeredLabel("go down")}
           {space} {this.centeredLabel("go up")}
           {mouseMove} {this.centeredLabel("look")}
@@ -3360,14 +3631,14 @@ class FlyControls {
     this.domElement = options.domElement
     this.interactionEnabled = !options.interactionDisabled
     this.isDisallowedBlockPos = options.isDisallowedBlockPos || (() => false)
-    this.flying = true
+    this.flying = options.flyDisabled? false : true
 
     this.listeners = []
     this.addEventListener(window, "keydown", e => {
       this.capturingMouseMovement && e.preventDefault()
       this.capturingMouseMovement && this.updateKeystates(e.key, true)
       e.key == "e" && this.toggleMouseCapture()
-      e.key == "f" && this.toggleFlying()
+      e.key == "f" && !options.flyDisabled && this.toggleFlying()
     })
     this.addEventListener(window, "keyup", e => {
       this.capturingMouseMovement && this.updateKeystates(e.key, false)
@@ -3761,7 +4032,7 @@ class AutomaticOrbiter {
   setRotationToTime(time) {
     var initialOffset = 3 * Math.PI / 2.0 // s.t. circle starts at x=0, z=-1
     var rotationTime = 2 * (Math.PI/this.period) * time + initialOffset
-    var newPos = (new Vector3(Math.cos(rotationTime)*this.radius, this.height, Math.sin(rotationTime)*this.radius)).add(this.center)
+    var newPos = (new Vector3(Math.cos(rotationTime)*this.radius, this.height, Math.sin(rotationTime)*this.radius)).add(new Vector3(this.center.x, 0, this.center.z))
     this.camera.position.set(newPos.x, newPos.y, newPos.z)
     this.camera.lookAt(this.lookAtPos)
     this.camera.updateWorldMatrix()
