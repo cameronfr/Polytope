@@ -1461,7 +1461,7 @@ var Listing = props => {
       <div style={{position: "absolute", top:"10px", right: "10px"}}>
         <ControlsHelpTooltip hideEditControls/>
       </div>
-      <div style={{position: "absolute", bottom:"60px", right: "60px"}}>
+      <div style={{position: "absolute", bottom:"60px", left: "60px"}}>
         <Joystick controlsManager={controlsManager} />
       </div>
       <canvas style={{height: "100%", width: "100%"}} ref={canvasRef}/>
@@ -1691,8 +1691,8 @@ var LandingPage = props => {
   var instructionsList = <>
     <div style={{display: "grid", rowGap: THEME.sizing.scale800}}>
       {listRow(1, <>Create your item in the editor.</>, <>Create an item easily without leaving the browser.</>)}
-      {listRow(2, <>Mint the non-fungible token for your item on the ethereum blockchain.</>, <>No two of the <StyledLink href="http://erc721.org/">ERC721</StyledLink> tokens can have the same arrangement of voxels — the token's id is the keccak hash of the voxel grid.</>)}
-      {listRow(3, <>Explore and trade for others' items.</>, <>Browse the listings and move around in any item. Or trade on <StyledLink href="https://app.rarible.com/collection/0xe8aa46d8d5565cb7f2f3d9686b0c77f3a6813504">external</StyledLink> <StyledLink href="https://opensea.io/assets/polytope">markets</StyledLink>. </>)}
+      {listRow(2, <>Mint the non-fungible token for your item on the ethereum blockchain.</>, <>No two of the <StyledLink href="http://erc721.org/" target="_blank">ERC721</StyledLink> tokens can have the same arrangement of voxels — the token's id is the keccak hash of the voxel grid.</>)}
+      {listRow(3, <>Explore and trade for others' items.</>, <>Browse the listings and move around in any item. Or trade on <StyledLink href="https://app.rarible.com/collection/0xe8aa46d8d5565cb7f2f3d9686b0c77f3a6813504" target="_blank">external</StyledLink> <StyledLink href="https://opensea.io/assets/polytope" target="_blank">markets</StyledLink>. </>)}
     </div>
   </>
 
@@ -1707,7 +1707,7 @@ var LandingPage = props => {
   var expandedMore = <> web3, reach-router, bignumber.js, scijs-ndarray, three, babel, parcel, react-icons, wolframalpha icosahedron, robobo1221, and island joy 16. </>
   var moreArea = showMoreBuiltWith ? expandedMore : moreButton
   const logoImage = require('./logo.svg');
-  const licenseLink = (text, link) => <StyledLink style={{color: "white"}} href={link}>{text}</StyledLink>
+  const licenseLink = (text, link) => <StyledLink style={{color: "white"}} href={link} target="_blank">{text}</StyledLink>
   var halfMargin = `calc(${mainMarginSize}/2)`
   var footer = <>
     <div style={{display: "flex", justifyContent: "start", padding: halfMargin, backgroundColor: THEME.colors.colorSecondary, alignItems: "center", flexWrap: "wrap"}}>
@@ -1992,7 +1992,7 @@ var Header = props => {
     </RouterLink>
   </>
   var discordButton = <>
-  <StyledLink href="https://discord.gg/XfBPAxv" style={{textDecoration: "none"}}>
+  <StyledLink href="https://discord.gg/XfBPAxv" target="_blank" style={{textDecoration: "none"}}>
     <Button kind={KIND.minimal} size={SIZE.default}>
       Discord
     </Button>
@@ -2640,6 +2640,10 @@ class VoxelEditor extends React.Component {
 
     this.state = {atPublishDialog: false}
 
+    if (isTouchDevice()) {
+      toaster.warning("Item creation is not yet supported on mobile.")
+    }
+
   }
 
   initialize() {
@@ -2951,7 +2955,7 @@ var WorldMode = props =>  {
     <div style={{position: "absolute", top:"10px", right: "10px"}}>
       <ControlsHelpTooltip hideEditControls hideFly/>
     </div>
-    <div style={{position: "absolute", bottom:"60px", right: "60px"}}>
+    <div style={{position: "absolute", bottom:"60px", left: "60px"}}>
       <Joystick controlsManager={controlsManager} />
     </div>
     <div style={{position: "absolute", top:"10px", left: "10px"}}>
@@ -3436,7 +3440,7 @@ class GameControlPanel extends React.Component {
     var magicaVoxelTemplatePath = require("./MagicaVoxelTemplate.vox")
     var importTooltipMessage = <>
       <div style={{width: "200px"}}>
-        The voxels size must be 16x16x16. Colors will be converted to the nearest color on the above palette. Download a template <StyledLink href={magicaVoxelTemplatePath} style={{color:"white", textDecoration: "underline", outline: "none"}}>here</StyledLink>. More flexibility will be added soon!
+        The voxels size must be 16x16x16. Colors will be converted to the nearest color on the above palette. Download a template <StyledLink href={magicaVoxelTemplatePath} target="_blank" style={{color:"white", textDecoration: "underline", outline: "none"}}>here</StyledLink>. More flexibility will be added soon!
       </div>
     </>
 
@@ -3648,7 +3652,7 @@ var PublishItemPanel = props => {
         </div>
         <LabelLarge style={{marginLeft: THEME.sizing.scale600}}>Token Minted</LabelLarge>
       </div>
-      <a style={{width: "100%", textDecoration: "none"}} href={`https://etherscan.io/tx/${success.transactionHash}`}>
+      <a style={{width: "100%", textDecoration: "none"}} href={`https://etherscan.io/tx/${success.transactionHash}`} target="_blank">
         <Button style={{width: "100%"}} size={SIZE.compact} kind={KIND.secondary}>
           View on Etherscan
         </Button>
@@ -3840,9 +3844,7 @@ class ControlsHelpTooltip extends React.Component {
       {handTap} {this.centeredLabel("go up")}
     </>
 
-    const touchCheck1 = window.matchMedia && window.matchMedia("(any-pointer:coarse)").matches && "exists"
-    const touchCheck2 = window.navigator.maxTouchPoints >= 1
-    var deviceHasTouch = touchCheck1 || touchCheck2 // firefox android doesn't support second...
+    var deviceHasTouch = isTouchDevice()
     var tooltipBox = (
       <div style={{display: "grid", gridTemplateColumns: "min-content min-content", rowGap: "10px", borderRadius: "8px", position: "absolute", right: "0", marginTop: "10px", boxShadow:"0px 0px 2px #ccc", padding: THEME.sizing.scale400, backgroundColor: "white", color: THEME.colors.colorSecondary}}>
         {deviceHasTouch ? tooltipForTouch : tooltipForKeyboard}
@@ -3864,9 +3866,7 @@ class ControlsHelpTooltip extends React.Component {
 }
 
 var Joystick = props => {
-  const touchCheck1 = window.matchMedia && window.matchMedia("(any-pointer:coarse)").matches && "exists"
-  const touchCheck2 = window.navigator.maxTouchPoints >= 1
-  var deviceHasTouch = touchCheck1 || touchCheck2 // firefox android doesn't support second...
+  var deviceHasTouch = isTouchDevice()
 
   var controlsManager = props.controlsManager
 
@@ -4452,6 +4452,13 @@ function keccakUtf8(string) {
 
 function hexToRGB(h) {
   return [+("0x"+h[1]+h[2]), +("0x"+h[3]+h[4]), +("0x"+h[5]+h[6])]
+}
+
+function isTouchDevice() {
+  const touchCheck1 = window.matchMedia && window.matchMedia("(any-pointer:coarse)").matches && "exists"
+  const touchCheck2 = window.navigator.maxTouchPoints >= 1
+  var deviceHasTouch = touchCheck1 || touchCheck2 // firefox android doesn't support second...
+  return deviceHasTouch
 }
 
 // Code that runs in module
