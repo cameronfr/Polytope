@@ -42,7 +42,9 @@ import { Checkbox, LABEL_PLACEMENT } from "baseui/checkbox";
 import { StatefulTooltip, PLACEMENT } from "baseui/tooltip";
 import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ChevronRight, Check } from "baseui/icon"
 import { MdMouse } from "react-icons/md"
-import {IoMdHelpCircleOutline, IoMdHelp, IoMdInformationCircleOutline} from "react-icons/io"
+import {IoMdHelpCircleOutline, IoMdHelp, IoMdInformationCircleOutline, IoIosHand, IoIosRadioButtonOn} from "react-icons/io"
+// import {FaHandPointUp} from "react-icons/fa" //make bundle size too big, need working tree-shaking bundler
+// import {GiJoystick} from "react-icons/gi"
 import {AiOutlineDownload} from "react-icons/ai"
 import { Navigation } from "baseui/side-navigation";
 import { Spinner } from "baseui/spinner";
@@ -1400,7 +1402,8 @@ var Listing = props => {
     datastore.getItemDetails({id: props.id})
   }, [props.id])
 
-  var isMobile = useMediaQuery([0, 700])
+  var isMobile = useMediaQuery([0, 780])
+  var [controlsManager, setControlsManager] = React.useState()
   //TODO: currently canvas object changes when size switches to mobile (so have to rerender in useeffect), would be nice if it didnt.
 
   var item = useGetFromDatastore({id: props.id, kind: "item"})
@@ -1424,6 +1427,7 @@ var Listing = props => {
 
       var gameState = new GameState({blocks: blockData})
       var flyControls = new FlyControls({gameState, domElement: canvas, interactionDisabled: true})
+      setControlsManager(flyControls)
 
       // set initial position
       const lookAtPos = new Vector3(gameState.worldSize.x/2, 8, gameState.worldSize.y/2)
@@ -1457,6 +1461,9 @@ var Listing = props => {
       <div style={{position: "absolute", top:"10px", right: "10px"}}>
         <ControlsHelpTooltip hideEditControls/>
       </div>
+      <div style={{position: "absolute", bottom:"60px", right: "60px"}}>
+        <Joystick controlsManager={controlsManager} />
+      </div>
       <canvas style={{height: "100%", width: "100%"}} ref={canvasRef}/>
     </div>
   </>
@@ -1471,7 +1478,7 @@ var Listing = props => {
         <div style={{display: "grid", gridTemplateColumns: "min-content min-content", margin: halfMargin}}>
           {/*TODO: make this accessible */}
           {backArrow}
-          <div style={{width: viewAreaSize+"px", height: viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc"}}>
+          <div style={{width: viewAreaSize+"px", height: viewAreaSize+"px", boxShadow: "0px 1px 2px #ccc", borderRadius: "20px", overflow: "hidden", backgroundColor: "#ccc", zIndex: 1}}>
             {canvasAndControls}
           </div>
         </div>
@@ -2765,6 +2772,7 @@ var WorldMode = props =>  {
   var canvasRef = React.useRef()
   var [currentViewedItem, setCurrentViewedItem] = React.useState()
   var [isLoading, setIsLoading] = React.useState(true)
+  var [controlsManager, setControlsManager] = React.useState() // needed for joystick
 
   var urlParams = new URLSearchParams(location.search);
   var locationId = urlParams.get("id") // same as item id.
@@ -2872,6 +2880,7 @@ var WorldMode = props =>  {
       setIsLoading(false)
     })
     var controls = new FlyControls({gameState, domElement: canvas, interactionDisabled: true, flyDisabled: true})
+    setControlsManager(controls)
 
     var resizeCamera = () => {
       const { height, width } = canvas.getBoundingClientRect();
@@ -2942,6 +2951,9 @@ var WorldMode = props =>  {
     <div style={{position: "absolute", top:"10px", right: "10px"}}>
       <ControlsHelpTooltip hideEditControls hideFly/>
     </div>
+    <div style={{position: "absolute", bottom:"60px", right: "60px"}}>
+      <Joystick controlsManager={controlsManager} />
+    </div>
     <div style={{position: "absolute", top:"10px", left: "10px"}}>
       {isLoading && <Spinner size={"32px"}/>}
     </div>
@@ -2958,7 +2970,7 @@ var WorldMode = props =>  {
   var halfMargin = "28px" // half of theme.sizing.scale1400
   var mobileHtml = <>
   <div style={{display: "flex", flexWrap: "wrap", justifyContent: "center"}}>
-    <div style={{width: "100vw", height: "100vw", backgroundColor: "#ccc"}} ref={canvasContainerRef}>
+    <div style={{width: "100vw", height: "100vw", backgroundColor: "#ccc", position: "relative"}} ref={canvasContainerRef}>
       {canvasAndControls}
     </div>
     <div style={{margin: halfMargin}}>
@@ -3801,36 +3813,151 @@ class ControlsHelpTooltip extends React.Component {
     var breakerLine = <div style={{height:"1px", backgroundColor: "#ccc"}}></div>
 
     const showEdit = !this.props.hideEditControls
+    var tooltipForKeyboard = <>
+      {leftClick} {this.centeredLabel("to gain focus")}
+      {esc} {this.centeredLabel("lose focus")}
+      {e} {this.centeredLabel("toggle focus")}
+      {breakerLine} {breakerLine}
+      {wasd} {this.centeredLabel("move")}
+      {!this.props.hideFly && <>{f} {this.centeredLabel("toggle walking")}</>}
+      {shifte} {this.centeredLabel("go down")}
+      {space} {this.centeredLabel("go up")}
+      {mouseMove} {this.centeredLabel("look")}
+      {showEdit && <>{rightClick} {this.centeredLabel("add block")}</>}
+      {showEdit && <>{leftClick} {this.centeredLabel("remove block")}</>}
+      {showEdit && <>{updownleftright} {this.centeredLabel("select block type")}</>}
+    </>
+
+
+    var handMove = this.keyRect(<div style={{display: "flex", alignItems: "center"}}><ArrowLeft size={keyHeight}/><IoIosHand size={keyHeight}/><ArrowRight size={keyHeight}/></div>, keyHeight )
+    var handTap = this.keyRect(<div style={{display: "flex", alignItems: "center"}}><IoIosHand size={keyHeight} style={{marginRight: "4px"}}/> tap</div>, keyHeight)
+    var joystickMove = this.keyRect(<div style={{display: "flex", alignItems: "center"}}><ArrowLeft size={keyHeight}/><IoIosRadioButtonOn size={keyHeight}/><ArrowRight size={keyHeight}/></div>, keyHeight )
+
+
+    var tooltipForTouch = <>
+      {handMove} {this.centeredLabel("look around")}
+      {joystickMove} {this.centeredLabel("move around")}
+      {handTap} {this.centeredLabel("go up")}
+    </>
+
+    const touchCheck1 = window.matchMedia && window.matchMedia("(any-pointer:coarse)").matches && "exists"
+    const touchCheck2 = window.navigator.maxTouchPoints >= 1
+    var deviceHasTouch = touchCheck1 || touchCheck2 // firefox android doesn't support second...
     var tooltipBox = (
       <div style={{display: "grid", gridTemplateColumns: "min-content min-content", rowGap: "10px", borderRadius: "8px", position: "absolute", right: "0", marginTop: "10px", boxShadow:"0px 0px 2px #ccc", padding: THEME.sizing.scale400, backgroundColor: "white", color: THEME.colors.colorSecondary}}>
-          {leftClick} {this.centeredLabel("to gain focus")}
-          {esc} {this.centeredLabel("lose focus")}
-          {e} {this.centeredLabel("toggle focus")}
-          {breakerLine} {breakerLine}
-          {wasd} {this.centeredLabel("move")}
-          {!this.props.hideFly && <>{f} {this.centeredLabel("toggle walking")}</>}
-          {shifte} {this.centeredLabel("go down")}
-          {space} {this.centeredLabel("go up")}
-          {mouseMove} {this.centeredLabel("look")}
-          {showEdit && <>{rightClick} {this.centeredLabel("add block")}</>}
-          {showEdit && <>{leftClick} {this.centeredLabel("remove block")}</>}
-          {showEdit && <>{updownleftright} {this.centeredLabel("select block type")}</>}
+        {deviceHasTouch ? tooltipForTouch : tooltipForKeyboard}
       </div>
     )
-
     return (
       <div style={{position: "relative", display:"inline-block"}}>
         <IoMdHelp
-          onMouseOver={() => this.setState({hover: true})}
-          onMouseLeave={() => this.setState({hover: false})}
+          onMouseOver={() => !deviceHasTouch && this.setState({hover: true})}
+          onMouseLeave={() => !deviceHasTouch && this.setState({hover: false})}
+          onTouchStart={e => {e.preventDefault(); this.setState({hover: !this.state.hover})}}
           size={"25px"}
           color={THEME.colors.colorSecondary}
-          style={{padding: "4px", borderRadius: "100%", boxShadow: "0px 0px 3px #ccc", backgroundColor: "white"}}/>
+          style={{padding: "4px", borderRadius: "100%", boxShadow: "0px 0px 3px #ccc", backgroundColor: "white", userSelect: "none"}}/>
         {this.state.hover && tooltipBox}
       </div>
     )
   }
+}
 
+var Joystick = props => {
+  const touchCheck1 = window.matchMedia && window.matchMedia("(any-pointer:coarse)").matches && "exists"
+  const touchCheck2 = window.navigator.maxTouchPoints >= 1
+  var deviceHasTouch = touchCheck1 || touchCheck2 // firefox android doesn't support second...
+
+  var controlsManager = props.controlsManager
+
+  var [offset, setOffset] = React.useState([0, 0])
+  var maxAbsOffset = 30
+  var joystickRef = React.useRef()
+
+  React.useEffect(() => {
+    if (!deviceHasTouch) {return}
+    var listeners = []
+    var addEventListener = (obj, eventName, func) => {
+      listeners.push([obj, eventName, func])
+      obj.addEventListener(eventName, func)
+    }
+
+    var sendToControls = (offset) => {
+      const minDist = 10
+      if (!controlsManager) {return}
+      if (offset[0] < -minDist) {
+        controlsManager.updateKeystates("a", true)
+      } else if (offset[0] > minDist) {
+        controlsManager.updateKeystates("d", true)
+      } else if (Math.abs(offset[0]) < minDist) {
+        controlsManager.updateKeystates("a", false)
+        controlsManager.updateKeystates("d", false)
+      }
+      if (-offset[1] < -minDist) {
+        controlsManager.updateKeystates("s", true)
+      } else if (-offset[1] > minDist) {
+        controlsManager.updateKeystates("w", true)
+      } else if (Math.abs(offset[1]) < minDist) {
+        controlsManager.updateKeystates("s", false)
+        controlsManager.updateKeystates("w", false)
+      }
+    }
+
+    var lastTouch
+    var currentOffset = [0,0] // can't get react state var here
+    addEventListener(joystickRef.current, "touchstart", e => {
+      e.preventDefault()
+      var touch = e.changedTouches.item(0)
+      lastTouch = touch
+    })
+    addEventListener(joystickRef.current, "touchmove", e => {
+      e.preventDefault()
+      var touch
+      for (var i=0; i<e.changedTouches.length; i++) {
+        var candidateTouch = e.changedTouches.item(i)
+        if (lastTouch && candidateTouch.identifier == lastTouch.identifier) {touch = candidateTouch; break}
+      }
+      // console.log("touchMove", currentTouch, e, touch)
+      if (touch && lastTouch) {
+        var deltaX = touch.pageX - lastTouch.pageX
+        var deltaY = touch.pageY - lastTouch.pageY
+        var newXOffset = Math.max(-maxAbsOffset, Math.min(maxAbsOffset, currentOffset[0]+deltaX))
+        var newYOffset = Math.max(-maxAbsOffset, Math.min(maxAbsOffset, currentOffset[1]+deltaY))
+        currentOffset = [newXOffset, newYOffset]
+        setOffset(currentOffset)
+        sendToControls(currentOffset)
+        lastTouch = touch
+      }
+    })
+    addEventListener(joystickRef.current, "touchend", e => {
+      lastTouch = undefined
+      currentOffset = [0, 0]
+      setOffset(currentOffset)
+      sendToControls(currentOffset)
+    })
+
+    var cleanup = () => {
+      listeners.forEach(([obj, eventName, func]) => {
+        obj.removeEventListener(eventName, func)
+      })
+    }
+    return cleanup
+  }, [props.controlsManager])
+
+  const joystickRadius = 35
+  const joystickWidth = joystickRadius * 2
+  var topPixelOffset = (-joystickRadius+offset[1]) + "px"
+  var rightPixelOffset = (-joystickRadius-offset[0]) + "px"
+  var joystick = <>
+    <div style={{position: "relative"}}>
+      <div style={{position: "absolute", top: topPixelOffset, right: rightPixelOffset}}>
+        <div style={{backgroundColor: "white", width: joystickWidth+"px", height: joystickWidth+"px", opacity: "0.7", borderRadius: "100%", boxShadow: "0px 0px 8px #ccc"}} ref={joystickRef}>
+        </div>
+      </div>
+    </div>
+  </>
+
+  return deviceHasTouch ? joystick : null
 }
 
 
@@ -3856,7 +3983,7 @@ class FlyControls {
     this.addEventListener(this.domElement, "mousedown", e => {
       if (e.button == 0) { // left click
         if (!this.capturingMouseMovement) {
-          this.domElement.requestPointerLock()
+          this.domElement.requestPointerLock && this.domElement.requestPointerLock()
         } else {
           this.clickBuffer.click += 1
         }
@@ -3881,16 +4008,34 @@ class FlyControls {
     var lastTouch
     this.addEventListener(this.domElement, "touchmove", e => {
       e.preventDefault()
-      var touch = e.touches[0]
-      if (lastTouch && touch && lastTouch.identifier == touch.identifier) {
+      var touch
+      for (var i=0; i<e.changedTouches.length; i++) {
+        var candidateTouch = e.changedTouches.item(i)
+        if (lastTouch && candidateTouch.identifier == lastTouch.identifier) {touch = candidateTouch;break}
+      }
+      if (lastTouch && touch) {
         var movementX = touch.pageX - lastTouch.pageX
         var movementY = touch.pageY - lastTouch.pageY
         this.updateMouseBuffer(movementX, movementY)
       }
-      lastTouch = touch
+      lastTouch = touch || e.changedTouches.item(0)
+    })
+    // detect taps and jump
+    var jumpTouch = {touch: null, timestamp: 0}
+    const jumpMs = 200
+    this.addEventListener(this.domElement, "touchstart", e => {
+      lastTouch = e.changedTouches[0]
+      jumpTouch.touch = e.changedTouches[0]
+      jumpTouch.timestamp = Date.now()
     })
     this.addEventListener(this.domElement, "touchend", e => {
-      lastTouch = null
+      var touch = e.changedTouches[0]
+      if (touch.identifier == jumpTouch.touch.identifier) {
+        if (Date.now() - jumpTouch.timestamp < jumpMs) {
+          this.updateKeystates(" ", true)
+          setTimeout(() => this.updateKeystates(" ", false), 200)
+        }
+      }
     })
 
     this.keyState = {}
