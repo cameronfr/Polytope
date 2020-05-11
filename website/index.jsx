@@ -24,6 +24,8 @@ import np from "ndarray-ops"
 import VoxExporter from "./VoxExporter.js"
 import voxImport from "parse-magica-voxel"
 
+import { ChromePicker } from "react-color"
+
 // Baseweb UI stuff
 const CopyToClipboard = require('clipboard-copy')
 import {Provider as StyletronProvider} from 'styletron-react';
@@ -113,6 +115,31 @@ if (process.env.NODE_ENV == "development") {
 }
 const mintFee = 5000000000000000
 
+// modified Island Joy 16: kerrielake
+var defaultBlockColors = [
+  {id:1,name: "white", hex: "#ffffff"},
+  {id:2,name: "peach", hex: "#f7b69e"},
+  {id:3,name: "clayRed", hex: "#cb4d68"},
+  {id:4,name: "crimson", hex: "#c92464"},
+  {id:5,name: "orange", hex: "#f99252"},
+  {id:6,name: "yellow", hex: "#f7e476"},
+  {id:7,name: "livelyGreen", hex: "#a1e55a"},
+  {id:8,name: "leafGreen", hex: "#5bb361"},
+  {id:9,name: "teal", hex: "#6df7c1"},
+  {id:10,name: "waterBlue", hex: "#11adc1"},
+  {id:11,name: "coralBlue", hex: "#1e8875"},
+  {id:12,name: "royalPurple", hex: "#6a3771"},
+  {id:13,name: "deepPurple", hex: "#393457"},
+  {id:14,name: "gray", hex: "#606c81"},
+  {id:15,name: "brown", hex: "#644536"},
+  {id:16,name: "rock", hex: "#9b9c82"},
+]
+defaultBlockColors.forEach(entry => {
+  var rgba = hexToRGB(entry.hex)
+  rgba.push(255)
+  entry["rgba"] = rgba
+})
+
 class APIFetcher {
 
   apparatusGenerator = new ApparatusGenerator()
@@ -168,29 +195,6 @@ class APIFetcher {
     this.apparatusGenerator.generateAndCopy({targetCanvas, seed})
   }
 
-  generateItemData({id}) {
-    var seed = this.hashCode(id)
-    var randomGen = RandomGen.create(seed)
-
-    const price = Math.round(randomGen.random()*100)/100
-    var name = Sentencer.make("{{ adjective }} {{ noun }}")
-    name = name[0].toUpperCase() + name.slice(1, name.length)
-    const ownerId = Web3Utils.sha3(id.toString()).slice(0, 42)
-
-    const worldSize = new Vector3(16, 17, 16)
-    var gen = (new WorldGenerator({worldSize}))//.worldWithPlate()
-    var range = [...Array(Math.floor(randomGen.random()*5)+3)]
-    range.forEach((val, idx) => gen.randomRectangularPrism({seed:seed+idx}))
-    const blocks = gen.blocks
-
-    var description = Sentencer.make([...Array(Math.floor(randomGen.random()*15))].map(i => "{{noun}}").join(" "))
-
-    var authorId = id+10
-
-    const data = {price, name, ownerId, blocks, description, authorId}
-    return data
-  }
-
   async getUser({id}) {
     id = id.toLowerCase()
     var call = this.callEndpoint("/getUserData", [id], "POST").then(res => res.json())
@@ -229,7 +233,7 @@ class APIFetcher {
 
   async setItemData(itemData) {
     const {metadata, metadataHash, id} = itemData
-    const {name, description, blocks} = metadata
+    const {version, name, description, blocksInfo, blocksColor} = metadata
     var res = await this.callEndpoint("/setItemData", itemData, "POST")
   }
 
@@ -577,27 +581,59 @@ class Datastore {
     var [apiItems, tokenItem, marketItem] = await Promise.all([apiCall, tokenCall, marketCall])
     var apiItem
     apiItems.forEach(item => {
-      var calculatedMetadataHash = keccakUtf8(JSON.stringify(item.metadata, ["name", "description", "blocks"]))
-      var validMetadata = calculatedMetadataHash == tokenItem.metadataHash
-      var calculatedBlocksHash = keccakUtf8(JSON.stringify(item.metadata.blocks))
-      var validBlocks = calculatedBlocksHash == tokenItem.id
-      if (validMetadata && validBlocks) {
-        apiItem = item
-        return
+      var version = item.metadata.version
+      if (!version) {
+        var calculatedMetadataHash = keccakUtf8(JSON.stringify(item.metadata, ["name", "description", "blocks"]))
+        var validMetadata = calculatedMetadataHash == tokenItem.metadataHash
+        var calculatedBlocksHash = keccakUtf8(JSON.stringify(item.metadata.blocks))
+        var validBlocks = calculatedBlocksHash == tokenItem.id
+        if (validMetadata && validBlocks) {
+          apiItem = item
+          return
+        }
+      } else if (version == "2.0") {
+        var calculatedMetadataHash = keccakUtf8(JSON.stringify(item.metadata, ["version", "name", "description", "blocksInfo", "blocksColor"]))
+        var validMetadata = calculatedMetadataHash == tokenItem.metadataHash
+        var calculatedBlocksHash = keccakUtf8(JSON.stringify({info: item.metadata.blocksInfo, color: item.metadata.blocksColor}, ["info", "color"]))
+        var validBlocks = calculatedBlocksHash == tokenItem.id
+        if (validMetadata && validBlocks) {
+          apiItem = item
+          return
+        }
       }
     })
     if (apiItem == undefined) {throw "Server had no items with correct metadata and blocks hash"}
 
-    var {name, description, blocks} = apiItem.metadata
-    if (blocks.length != (16*16*16*1)) {throw "blocks metadata invalid"}
-    // might want other checks like above, goal is that if data that was hashed is different, what shows up on screen in the game should be different.
+    var blockData
+    var version = apiItem.metadata.version
+    if (!version) {
+      var {name, description, blocks} = apiItem.metadata
+      if (blocks.length != (16*16*16*1)) {throw "blocks metadata invalid"}
+      var blockData = {}
+      var fullBlocks = ndarray(new Uint8Array(16*16*16*4), [16,16,16,4])
+      np.assign(fullBlocks.lo(0, 0, 0, 0).hi(16,16,16,1), ndarray(new Uint8Array(blocks), [16,16,16,1]))
+      blockData.info = fullBlocks
+      var colors = blocks.map(colorIdx => {
+        if (colorIdx != 0) {
+          var rgb = hexToRGB(defaultBlockColors[colorIdx-1].hex)
+          return [...rgb, 255]
+        } else {
+          return [255,0,0,255]
+        }
+      })
+      blockData.color = ndarray(new Uint8Array(colors.flat()), [16,16,16,4])
+    } else if (version == "2.0") {
+      var {name, description, blocksInfo, blocksColor} = apiItem.metadata
+      blockData = {}
+      blockData.info = ndarray(base64ToUint8Array(blocksInfo), [16,16,16,4])
+      blockData.color = ndarray(base64ToUint8Array(blocksColor), [16,16,16,4])
+    }
 
-    var blockArray = ndarray(new Uint8Array(blocks), [16,16,16,1])
 
     var item = {
       name,
       description,
-      blocks: blockArray,
+      blocks: blockData,
       ...tokenItem,
       ...marketItem,
     }
@@ -1252,11 +1288,7 @@ var ListingCard = props => {
 
     var setupBlockdisplay = async () => {
       var {blocks} = item
-      var blockData = ndarray(new Uint8Array(16*16*16*4), [16, 16, 16, 4])
-      var blockIDSlice = blockData.lo(0, 0, 0, 0).hi(16, 16, 16, 1)
-      np.assign(blockIDSlice, blocks)
-
-      gameState = new GameState({blocks: blockData})
+      gameState = new GameState({blocks})
       const lookAtPos = new Vector3(gameState.worldSize.x/2, 8, gameState.worldSize.y/2)
       var orbiter = new AutomaticOrbiter(gameState.camera, {center: lookAtPos.clone(), height: 13, period: 10, radius: 1.5*gameState.worldSize.x/2, lookAtPos})
       orbiter.setRotationToTime(0)
@@ -1421,11 +1453,7 @@ var Listing = props => {
       voxelRenderer = new VoxelRenderer({pixelRatio:1, canvas:canvas})
 
       var {blocks} = item
-      var blockData = ndarray(new Uint8Array(16*16*16*4), [16, 16, 16, 4])
-      var blockIDSlice = blockData.lo(0, 0, 0, 0).hi(16, 16, 16, 1)
-      np.assign(blockIDSlice, blocks)
-
-      var gameState = new GameState({blocks: blockData})
+      var gameState = new GameState({blocks})
       var flyControls = new FlyControls({gameState, domElement: canvas, interactionDisabled: true})
       setControlsManager(flyControls)
 
@@ -1518,7 +1546,7 @@ var ItemDetailsPanel = props => {
   var downloadVox = () => {
     var {blocks} = item
     var gameState = new GameState({blocks})
-    var exporter = gameState.toVoxExporter()
+    var exporter = gameState.toVoxExporter(gameState.blocks)
     exporter(item.name + ".vox")
   }
   var downloadButton = <>
@@ -2151,7 +2179,8 @@ class VoxelRenderer {
 
 
     const sharedShaderVariables = `
-      uniform sampler2D blocks;
+      uniform sampler2D blocksInfo;
+      uniform sampler2D blocksColor;
       uniform vec2 viewportSize;
       uniform float topBorderRadius; //hack-y but can't clip abs background
       uniform mat4 invProjection;
@@ -2169,7 +2198,7 @@ class VoxelRenderer {
         if (clamp(index, vec3(0, 0, 0), worldSize - 1.0 + 0.001) == index) {
           vec2 blockIdxs = vec2(index.x,index.y*worldSize.z + index.z) + vec2(0.5, 0.5);
           vec2 arrayIdxs = blockIdxs/vec2(worldSize.x, worldSize.y*worldSize.z);
-          vec4 blockValue = ${Array2dValueAtIndex({arrayVar: "blocks", indexVar: "arrayIdxs", vertexOrFragment})}
+          vec4 blockValue = ${Array2dValueAtIndex({arrayVar: "blocksInfo", indexVar: "arrayIdxs", vertexOrFragment})}
           return blockValue;
         } else {
           return vec4(0, 0, 0, -1); //so a=-1 means out of bounds, a=0 means blank block
@@ -2436,8 +2465,10 @@ class VoxelRenderer {
           if (dot(hitNorm, -lightDir) < 0.0) {
             reflectRayCosSim = 0.0;
           }
-          float blockIdx = floor(blockValue.x * 255.0 + 0.5) - 1.0 + 0.5;
-          vec4 blockColor = ${Array2dValueAtIndex({arrayVar: "colorStorage", indexVar: "vec2(blockIdx/16.0, 0.5)", vertexOrFragment: "fragment"})}
+
+          vec2 blockIdxs = vec2(blockIdx.x,blockIdx.y*worldSize.z + blockIdx.z) + vec2(0.5, 0.5);
+          vec2 arrayIdxs = blockIdxs/vec2(worldSize.x, worldSize.y*worldSize.z);
+          vec4 blockColor = ${Array2dValueAtIndex({arrayVar: "blocksColor", indexVar: "arrayIdxs",vertexOrFragment: "fragment"})}
           vec3 colorMix  = (0.0*reflectRayCosSim + 0.2*rayNormCosSim + 0.86) * blockColor.rgb * ambientOcclusionAlpha;
           // vec3 colorMix  = blockColor * ambientOcclusionAlpha;
           gl_FragColor = vec4(colorMix, 1);
@@ -2529,8 +2560,11 @@ class VoxelRenderer {
 
       uniforms: {
         // This defines the color of the triangle to be a dynamic variable
-        blocks: (context, props) => {
-          return props.gameState.getBlocksBuffer(this.regl)
+        blocksInfo: (context, props) => {
+          return props.gameState.getBlocksBuffer(this.regl, "info")
+        },
+        blocksColor: (context, props) => {
+          return props.gameState.getBlocksBuffer(this.regl, "color")
         },
         worldSize: (context, props) => {
           const worldSize = props.gameState.worldSize
@@ -2607,6 +2641,8 @@ class VoxelRenderer {
 
   render(targetID) {
     const {gameState, element} = this.targets[targetID]
+    // const sizeOfTargetCanvas = {width: 780, height: 590}
+    // const sizeOfTargetCanvas = element
     const sizeOfTargetCanvas = element.getBoundingClientRect();
     const targetedWidth = sizeOfTargetCanvas.width * this.pixelRatio
     const targetedHeight = sizeOfTargetCanvas.height * this.pixelRatio
@@ -2652,10 +2688,8 @@ class VoxelEditor extends React.Component {
     this.camera.position.set(0.01 + worldSize.x/2, 10, 0)
     this.camera.lookAt(worldSize.clone().divideScalar(2))
 
-    var blocks = (new WorldGenerator({worldSize})).bottomPlate().blocks
-
     var savedGameStateJSON = window.localStorage.getItem("savedNewItemEditorState")
-    this.gameState = new GameState({blocks, camera:this.camera, json:savedGameStateJSON})
+    this.gameState = new GameState({camera:this.camera, json:savedGameStateJSON})
   }
 
   componentDidMount() {
@@ -2673,7 +2707,6 @@ class VoxelEditor extends React.Component {
     }
 
     this.voxelRenderer = new VoxelRenderer({pixelRatio: 1,canvas: this.canvasRef.current, worldSize: this.gameState.worldSize})
-    // this.voxelRenderer = new VoxelRenderer({worldSize, topBorderRadius: 14})
     this.renderTargetID = this.voxelRenderer.addTarget({gameState: this.gameState, element: this.canvasRef.current})
     this.controls.externalTick()
     this.voxelRenderer.render(this.renderTargetID)
@@ -2706,16 +2739,7 @@ class VoxelEditor extends React.Component {
   }
 
   resetGameState() {
-    // would be better to re-run defaults in constructor
-    window.localStorage.setItem("savedNewItemEditorState", null)
-    this.gameState.setBlocks(ndarray(new Uint8Array(16 * 17 * 16 * 4), [16,17,16,4]))
-    var gen = (new WorldGenerator({blocks: this.gameState.blocks})).clear()
-    gen.bottomPlate()
-    this.gameState.position.set(0.01 + this.gameState.worldSize.x/2, 10, 0)
-    this.gameState.camera.rotation.set(0, 0.1, 0)
-    this.camera.lookAt(this.gameState.worldSize.clone().divideScalar(2))
-    this.camera.updateWorldMatrix()
-    this.saveGameState()
+    this.gameState.setBlocks(this.gameState.defaultBlocks())
   }
 
   componentWillUnmount() {
@@ -2735,11 +2759,12 @@ class VoxelEditor extends React.Component {
   render() {
     var sidebar
     if (this.state.atPublishDialog) {
+      var blocksNoBuildPlate = this.gameState.getBlocksSlice([0,1,0], [16,16,16])
       var onGoBack = () => {
         this.setState({atPublishDialog: false})
         this.controls.interactionEnabled = true
       }
-      sidebar = <PublishItemPanel onGoBack={onGoBack} blocks={this.gameState.getRawBlocks()}/>
+      sidebar = <PublishItemPanel onGoBack={onGoBack} blocks={blocksNoBuildPlate}/>
     } else {
       var onContinue = () => {
         this.setState({atPublishDialog: true})
@@ -2761,7 +2786,7 @@ class VoxelEditor extends React.Component {
             </div>
           </div>
           <div style={{}}>
-            <div style={{boxSizing: "border-box", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", padding: THEME.sizing.scale600, marginLeft: THEME.sizing.scale1400, marginBottom: THEME.sizing.scale1400, overflowY: "scroll"}}>
+            <div style={{boxSizing: "border-box", boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", padding: THEME.sizing.scale600, marginLeft: THEME.sizing.scale1400, marginBottom: THEME.sizing.scale1400, overflowY: "scroll", overflow: "visible"}}>
               {sidebar}
             </div>
           </div>
@@ -2806,19 +2831,22 @@ var WorldMode = props =>  {
     var itemSize = 16
     var roadSize = 2
     var worldWidth = (itemSize+roadSize) * mapSizeChunks + roadSize
-    var worldSize = new Vector3(worldWidth, itemSize+1, worldWidth)
-    var worldBlocks = (new WorldGenerator({worldSize})).bottomPlate().blocks
-    // ids = ids.slice(0, 25)
+    var worldSize = [worldWidth, itemSize+1, worldWidth]
+    var worldSizeBytes = worldSize[0]*worldSize[1]*worldSize[2]*4
+
+    var worldBlockInfo = ndarray(new Uint8Array(worldSizeBytes), [...worldSize, 4])
+    var worldBlockColor = ndarray(new Uint8Array(worldSizeBytes), [...worldSize, 4])
+    var worldBlocks = {info: worldBlockInfo, color: worldBlockColor}
+
     // disable optimization while stuff is loading in (or will look glitchy)
+    gameState.setBlocks(worldBlocks)
     gameState.resetCubeRaymarchOptimization()
     var updates = items.map(async (item, currentIdx) => {
-      // var item = await datastore.getData({id, kind: "item"})
       var chunkIdx = [Math.floor(currentIdx / mapSizeChunks), currentIdx % mapSizeChunks]
       var chunkPos = chunkIdx.map(idx => roadSize + (itemSize+roadSize)*idx)
       if (item.blocks) {
-        // item id from listing not necessarily valid -- i.e. might contain no blocks bcz invalid
-        var currentSlice = worldBlocks.lo(chunkPos[0], 1, chunkPos[1], 0).hi(...item.blocks.shape)
-        np.assign(currentSlice, item.blocks)
+        var currentSlice = gameState.getSlice([chunkPos[0], 1, chunkPos[1]], item.blocks.info.shape.slice(0, 3))
+        currentSlice.assign(item.blocks)
       }
       if (item.id == locationId) {
         var eps = 0.11
@@ -2826,18 +2854,20 @@ var WorldMode = props =>  {
         gameState.camera.lookAt(new Vector3(chunkPos[0] + itemSize/2, itemSize/2, chunkPos[1] + itemSize/2))
         setCurrentViewedItem(item)
       }
-      var roadSlice = worldBlocks.lo(chunkPos[0]-roadSize, 0, chunkPos[1]-roadSize,0).hi(itemSize+2*roadSize, 1, itemSize+2*roadSize, 1)
+      var roadSlice = gameState.getSlice([chunkPos[0]-roadSize, 0, chunkPos[1]-roadSize], [itemSize+2*roadSize, 1, itemSize+2*roadSize])
       // move to worldgen? make worldgen work on slices?
       for (var x =0; x<roadSlice.shape[0]; x++) {
         for (var y=0; y<roadSlice.shape[1]; y++) {
           for(var z=0; z<roadSlice.shape[2]; z++) {
-            var color = Math.random() < 0.2 ? 14 : 16
-            roadSlice.set(x, y, z, 0, color)
+            // var color = Math.random() < 0.2 ?  [97, 109, 128, 255] : [155, 155, 131, 255]
+            var r = () => Math.random()**2
+            var color = [97+r()*58, 109+r()*46, 128+r()*3, 255]
+            roadSlice.set(x, y, z, 1, color)
           }
         }
       }
-      var centerSlice = worldBlocks.lo(chunkPos[0], 0, chunkPos[1], 0).hi(itemSize, 1, itemSize, 1)
-      np.assigns(centerSlice, 1)
+      var centerSlice = gameState.getSlice([chunkPos[0], 0, chunkPos[1]], [itemSize, 1, itemSize])
+      centerSlice.assigns(1, [255, 255, 255, 255])
     })
 
     var coordsToItemId = coords => {
@@ -2851,8 +2881,8 @@ var WorldMode = props =>  {
       var item = items[index]
       return item
     }
+
     await Promise.all(updates)
-    // update cube preoptimization map
     gameState.setBlocks(worldBlocks)
 
     return {coordsToItemId}
@@ -2876,8 +2906,7 @@ var WorldMode = props =>  {
     camera.position.set(0.01 + 10/2, 10, 0)
     camera.lookAt(new Vector3(8, 8, 8))
 
-    var tmpBlocks = (new WorldGenerator({worldSize: new Vector3(1,1,1)})).blocks
-    var gameState = new GameState({blocks: tmpBlocks, camera})
+    var gameState = new GameState({camera})
     var coordsToItemId
     assembleWorldGrid({gameState}).then(ret => {
       coordsToItemId = ret.coordsToItemId
@@ -2992,91 +3021,7 @@ var WorldMode = props =>  {
   return html
 }
 
-class WorldGenerator {
-  constructor({worldSize, blocks}) {
-    if (worldSize) {
-      const worldShape = [worldSize.x, worldSize.y, worldSize.z, 4]
-      const numBlocks = worldShape.reduce((a, b) => a*b, 1)
-      this.blocks = ndarray(new Uint8Array(numBlocks), worldShape)
-      np.assigns(this.blocks, 0)
-    } else if (blocks) {
-      this.blocks = blocks
-    } else {
-      throw "need worldSize or blocks"
-    }
-    return this
-  }
-
-  bottomPlate(blockID) {
-    var bottomSlice = this.blocks.lo(0, 0, 0, 0).hi(this.blocks.shape[0], 1, this.blocks.shape[2], 1)
-    var blockID = blockID == undefined ? 1 : blockID
-    np.assigns(bottomSlice, blockID)
-
-    return this
-  }
-
-  colorStripe() {
-    for (var z = 0; z < this.blocks.shape[2]; z++) {
-      this.blocks.set(1, 1, z, 0, z)
-    }
-    return this
-  }
-
-  clear() {
-    np.assigns(this.blocks, 0)
-    return this
-  }
-
-  // puts random color rand size prism on floor flate
-  // working with nddaray-ops not easy
-  randomRectangularPrism({seed}) {
-    var randomGen = RandomGen.create(seed)
-
-    const worldShape = ndarray(this.blocks.shape.slice(0, 3))
-
-    var widths = ndarray(Array(3))
-    var startCornerPos = ndarray(Array(3))
-
-    np.muleq(np.random(widths), worldShape)
-    np.divseq(widths, 2)
-    np.flooreq(widths)
-    np.addseq(widths, 1) //min width of 1
-
-    np.sub(startCornerPos, worldShape, widths)
-    np.divseq(startCornerPos, 2)
-    np.flooreq(startCornerPos)
-    startCornerPos.set(1, 1) //make it rest on the floor plate
-
-    var randomColor = Math.floor(randomGen.random() * 16) * 1
-    var prismSlice = this.blocks.lo(...startCornerPos.data, 0).hi(...widths.data, 1)
-    np.assigns(prismSlice, randomColor)
-
-    return this
-  }
-
-}
-
 class GameState {
-
-  // modified Island Joy 16: kerrielake
-  blockColors = [
-    {id:1,name: "white", hex: "#ffffff"},
-    {id:2,name: "peach", hex: "#f7b69e"},
-    {id:3,name: "clayRed", hex: "#cb4d68"},
-    {id:4,name: "crimson", hex: "#c92464"},
-    {id:5,name: "orange", hex: "#f99252"},
-    {id:6,name: "yellow", hex: "#f7e476"},
-    {id:7,name: "livelyGreen", hex: "#a1e55a"},
-    {id:8,name: "leafGreen", hex: "#5bb361"},
-    {id:9,name: "teal", hex: "#6df7c1"},
-    {id:10,name: "waterBlue", hex: "#11adc1"},
-    {id:11,name: "coralBlue", hex: "#1e8875"},
-    {id:12,name: "royalPurple", hex: "#6a3771"},
-    {id:13,name: "deepPurple", hex: "#393457"},
-    {id:14,name: "gray", hex: "#606c81"},
-    {id:15,name: "brown", hex: "#644536"},
-    {id:16,name: "rock", hex: "#9b9c82"},
-  ]
 
   defaultCamera = () => new PerspectiveCamera(95, 1.0, 0.1, 1000)
 
@@ -3085,7 +3030,13 @@ class GameState {
       options = {...options, ...this.fromJSON(options.json)}
     }
 
-    this.selectedBlockColor = 1
+    this.blocksBuffer = {}
+    this.selectedBlockColor = "#ffffff"
+
+    if (!options.blocks) {
+      // make default block data
+      options.blocks = this.defaultBlocks()
+    }
     this.setBlocks(options.blocks)
 
     this.camera = options.camera || this.defaultCamera()
@@ -3103,38 +3054,64 @@ class GameState {
     this.position = this.camera.position
   }
 
-  getBlocksBuffer(regl) {
+  defaultBlocks() {
+    var blocks = {}
+    var worldSize = [16, 17, 16]
+    var sizeBytes = worldSize.reduce((a, b) => a*b)*4
+    blocks.info = ndarray(new Uint8Array(sizeBytes), [...worldSize, 4])
+    blocks.color = ndarray(new Uint8Array(sizeBytes), [...worldSize, 4])
+    np.assigns(blocks.color, 255)
+    var floorSlice = blocks.info.lo(0, 0, 0,).hi(worldSize[0], 1, worldSize[2], 1)
+    np.assigns(floorSlice, 1)
+    return blocks
+  }
+
+  getBlocksBuffer(regl, subType) {
     // Passed regl from renderer. If regl changes for a given gameState, bad thing will happen
-    if (!this.blockBuffer) {
+    // if (subType == "color") {
+    //   console.log(this.blocks.color)
+    // }
+    if (!this.blocksBuffer[subType]) {
       this.regl = regl
       const worldSize = this.worldSize
       // .data does not change for a slice, so passing scijs slices as data here won't work
-      var blocksReshape = ndarray(this.blocks.data, [worldSize.x, worldSize.y*worldSize.z, 4])
+      var blocksReshape = ndarray(this.blocks[subType].data, [worldSize.x, worldSize.y*worldSize.z, 4])
       var blocksTexture = regl.texture(blocksReshape)
-      this.blockBuffer = blocksTexture
+      this.blocksBuffer[subType]= blocksTexture
     }
-    return this.blockBuffer
+    return this.blocksBuffer[subType]
   }
 
   destroy() {
-    this.regl && this.blockBuffer && !this.regl._destroyed && this.blockBuffer.destroy()
+    if (this.regl && !this.regl._destroyed) {
+      this.blocksBuffer.color && this.blocksBuffer.color.destroy()
+      this.blocksBuffer.info && this.blocksBuffer.info.destroy()
+    }
   }
 
-  setBlocksData(x, y, z, i, val) {
+  setBlocksInfo(x, y, z, i, val) {
     const worldSize = this.worldSize
-    this.blocks.set(x, y, z, i, val)
+    this.blocks.info.set(x, y, z, i, val)
     // this.blockBuffer = undefined // force blockbuffer to be rebuilt when getBlocksBuffer is called
     // If do above, will cause rebuilding every time block selection changes
-    if (this.blockBuffer) {
+    if (this.blocksBuffer.info) {
       var newPixel = []
       for (var j=0; j<4; j++) {
         if (i == j) {
           newPixel.push(val)
         } else {
-          newPixel.push(this.blocks.get(x, y, z, j))
+          newPixel.push(this.blocks.info.get(x, y, z, j))
         }
       }
-      this.blockBuffer.subimage({width: 1, height: 1, data:newPixel}, x, y*worldSize.z + z)
+      this.blocksBuffer.info.subimage({width: 1, height: 1, data:newPixel}, x, y*worldSize.z + z)
+    }
+  }
+
+  setBlocksColor(x, y, z, color) {
+    const worldSize = this.worldSize
+    ;[0,1,2,3].map(i => this.blocks.color.set(x, y, z, i, color[i]))
+    if (this.blocksBuffer.color) {
+      this.blocksBuffer.color.subimage({width: 1, height: 1, data: color}, x, y*worldSize.z + z)
     }
   }
 
@@ -3165,7 +3142,7 @@ class GameState {
       return SATArray
     }
 
-    var SAT = generateSummedAreaTable(this.blocks)
+    var SAT = generateSummedAreaTable(this.blocks.info)
 
     // going by cube "radius -- e.g. min dist(x,y,z) from center block
     var smallestEmptyCubeSize = (index, startLow, startHigh) => {
@@ -3186,10 +3163,6 @@ class GameState {
 
       var middle = Math.floor((startLow + startHigh) / 2) // bias low so middle on inner side of border wins
       var midCubeSize = cubeBlockCount(middle)
-      // low 0 high 1
-      // middle 0
-      // console.log(startLow, middle, startHigh)
-      // console.log("mid cube size", midCubeSize, "at mid rad", middle)
       var r = middle
 
       if (midCubeSize > 0) {
@@ -3199,7 +3172,7 @@ class GameState {
       }
     }
 
-    var shape = this.blocks.shape
+    var shape = this.blocks.info.shape
 
     // var dists = []
 
@@ -3208,7 +3181,7 @@ class GameState {
         for (var z=0; z<shape[2]; z++) {
           var safeRaymarchDist = smallestEmptyCubeSize([x, y, z], 0, Math.min(x, y, z, shape[0]-x-1, shape[1]-y-1, shape[2]-z-1))
           // dists.push(safeRaymarchDist)
-          this.setBlocksData(x, y, z, 2, safeRaymarchDist)
+          this.setBlocksInfo(x, y, z, 2, safeRaymarchDist)
         }
       }
     }
@@ -3217,7 +3190,10 @@ class GameState {
   }
 
   toJSON() {
-    var blocks = {data: this.blocks.data, shape: this.blocks.shape}
+    var blocks = {
+      info: {data: this.blocks.info.data, shape: this.blocks.info.shape},
+      color: {data: this.blocks.color.data, shape: this.blocks.color.shape}
+    }
     var playerState = {position: this.camera.position, rotation: this.camera.rotation}
     var json = JSON.stringify({blocks, playerState})
     return json
@@ -3226,8 +3202,30 @@ class GameState {
   fromJSON(json) {
     try {
       var jsonObject = JSON.parse(json)
-      var blockArray = new Uint8Array(Object.values(jsonObject.blocks.data))
-      var blocks = ndarray(blockArray, jsonObject.blocks.shape)
+      var info
+      var color
+      if (!jsonObject.blocks.info) {
+        // migrate from pre-color-update saved data
+        var blocks = Object.values(jsonObject.blocks.data)
+        var blockColors = []
+        for (var i=0; i<blocks.length; i+= 4) {
+          var color = [255, 255, 255, 255]
+          if (blocks[i] > 0) {
+            color = hexToRGB(defaultBlockColors[blocks[i] - 1].hex)
+            color.push(255)
+          }
+          blockColors.push(color)
+        }
+        info = ndarray(new Uint8Array(blocks), jsonObject.blocks.shape)
+        color = ndarray(new Uint8Array(blockColors.flat()), jsonObject.blocks.shape)
+      } else {
+        var blocksInfoArray = new Uint8Array(Object.values(jsonObject.blocks.info.data))
+        info = ndarray(blocksInfoArray, jsonObject.blocks.info.shape)
+        var blocksColorArray = new Uint8Array(Object.values(jsonObject.blocks.color.data))
+        color = ndarray(blocksColorArray, jsonObject.blocks.color.shape)
+      }
+
+      var blocks = {info, color}
       var playerState = jsonObject.playerState
 
       var valid // to check validity of saved data
@@ -3241,31 +3239,87 @@ class GameState {
     }
   }
 
-  // removes build plate. and only takes block dim of vec4
-  getRawBlocks() {
-    var validSlice = this.blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 1)
-    var publishableBlocks = ndarray(new Uint8Array(16*16*16*1), [16, 16, 16, 1])
-    np.assign(publishableBlocks, validSlice)
-    return publishableBlocks
+  getBlocksSlice(xyzLo, xyzHi) {
+    var blocks = {}
+    var subTypes = ["info", "color"]
+    subTypes.forEach(type => {
+      var size = xyzHi
+      size = [...size, 4]
+      var newArray = ndarray(new Uint8Array(size.reduce((a, b) => a*b)), size)
+      var slice = this.blocks[type].lo(...xyzLo, 0).hi(...xyzHi, 4)
+      np.assign(newArray, slice)
+      blocks[type] = newArray
+    })
+    return blocks
   }
 
-  toVoxExporter() {
+  setBlocksSlice(xyzLo, xyzHi, color, blockType) {
+    // could also use subimage functionality, might be better assuming slices are small proportion
+    this.blocksBuffer.info = undefined
+    this.blocksBuffer.color = undefined
+    ;[0,1,2,3].forEach(i => {
+      var slice = this.blocks.color.lo(...xyzLo, i).hi(...xyzHi, 1)
+      np.assigns(slice, color[i])
+    })
+    var slice = this.blocks.info.lo(...xyzLo, 0).hi(...xyzHi, 1)
+    np.assigns(slice, blockType)
+  }
+
+  getSlice(xyzLo, xyzHi) {
+    var blocks = {}
+    blocks.info = this.blocks.info.lo(...xyzLo, 0).hi(...xyzHi, 4)
+    blocks.color = this.blocks.color.lo(...xyzLo, 0).hi(...xyzHi, 4)
+    blocks.assign = srcBlocks => {
+      np.assign(blocks.info, srcBlocks.info)
+      np.assign(blocks.color, srcBlocks.color)
+    }
+    blocks.assigns = (blockType, color) => {
+      var xyzShape = blocks.info.shape.slice(0, 3)
+      np.assigns(blocks.info.lo(0, 0, 0, 0).hi(...xyzShape, 1), blockType)
+      ;[0,1,2,3].forEach(i => {
+        var slice = blocks.color.lo(0, 0, 0, i).hi(...xyzShape, 1)
+        np.assigns(slice, color[i])
+      })
+    }
+    blocks.set = (x, y, z, blockType, color) => {
+      blocks.info.set(x, y, z, 0, blockType)
+      ;[0,1,2,3].forEach(i => blocks.color.set(x, y, z, i, color[i]))
+    }
+    blocks.shape = blocks.info.shape
+    return blocks
+  }
+
+  toVoxExporter(blocks) {
     var exporter = new VoxExporter(16, 16, 16)
-    var rawBlocks = this.getRawBlocks()
+    var currentPaletteIndex = 0
+    var palette = {}
     // set blocks
-    for (var x = 0; x < rawBlocks.shape[0]; x++) {
-      for (var y = 0; y < rawBlocks.shape[0]; y++) {
-        for (var z = 0; z < rawBlocks.shape[0]; z++) {
-            var colorIndex = rawBlocks.get(x, y, z, 0)
-            exporter.setVoxel(16-x-1, z, y, colorIndex) // magicaVoxel coords are diff
+    for (var x = 0; x < blocks.info.shape[0]; x++) {
+      for (var y = 0; y < blocks.info.shape[0]; y++) {
+        for (var z = 0; z < blocks.info.shape[0]; z++) {
+          var color = [0,1,2,3].map(i => blocks.color.get(x, y, z, i))
+          var colorHex = rgbToHex(color)
+          var blockExists = blocks.info.get(x, y, z, 0) != 0
+          var colorIndex
+          if (!blockExists) {
+            colorIndex = 0
+          } else if (colorHex in palette) {
+            colorIndex = palette[colorHex] + 1
+          } else {
+            palette[colorHex] = currentPaletteIndex
+            colorIndex = currentPaletteIndex + 1
+            currentPaletteIndex += 1
+          }
+          exporter.setVoxel(blocks.info.shape[0]-x-1, z, y, colorIndex) // magicaVoxel coords are diff
         }
       }
     }
+
     // set palette
-    this.blockColors.map(colorItem => {
-      var colorHex = colorItem.hex.slice(1, colorItem.hex.length)
+    Object.keys(palette).map(c => {
+      var colorHex = c.slice(1, c.length)
       colorHex = "0x00" + colorHex // add alpha channel
-      exporter.palette[colorItem.id-1] = parseInt(colorHex, 16)
+      exporter.palette[palette[c]] = parseInt(colorHex, 16)
     })
 
     var exportFunction = filename => exporter.export(filename)
@@ -3274,11 +3328,11 @@ class GameState {
 
   // sometimes want to do stuff manually
   resetCubeRaymarchOptimization() {
-    var shape = this.blocks.shape
+    var shape = this.blocks.info.shape
     for (var x=0; x<shape[0]; x++) {
       for (var y=0; y<shape[1]; y++) {
         for (var z=0; z<shape[2]; z++) {
-          this.setBlocksData(x, y, z, 2, 0)
+          this.setBlocksInfo(x, y, z, 2, 0)
         }
       }
     }
@@ -3286,45 +3340,51 @@ class GameState {
 
   // has to be called when setting this.blocks
   setBlocks(blocks) {
-    this.blockBuffer = undefined // force blockbuffer to be rebuilt when getBlocksBuffer is called
+    this.blocksBuffer.info = undefined // force blockbuffer to be rebuilt when getBlocksBuffer is called
+    this.blocksBuffer.color = undefined
     this.blocks = blocks
-    this.updateCubeRaymarchDistances(blocks)
-    this.worldSize = new Vector3(...this.blocks.shape.slice(0, 3))
+    this.updateCubeRaymarchDistances(blocks.info)
+    this.worldSize = new Vector3(...blocks.info.shape.slice(0, 3))
   }
 
   // Expects cube sans floor plate
-  setAllBlocks(rawBlocks) {
-    var blocks = ndarray(new Uint8Array(16*17*16*4), [16, 17, 16, 4])
-    var nonFloorSlice = blocks.lo(0, 1, 0, 0).hi(16, 16, 16, 1)
-    np.assign(nonFloorSlice, rawBlocks)
+  setNonFloorBlocks(rawBlocks) {
+    var info = ndarray(new Uint8Array(16*17*16*4), [16, 17, 16, 4])
+    var color = ndarray(new Uint8Array(16*17*16*4), [16, 17, 16, 4])
+    var nonFloorSliceInfo = info.lo(0, 1, 0, 0).hi(16, 16, 16, 1)
+    var nonFloorSliceColor = color.lo(0, 1, 0, 0).hi(16, 16, 16, 4)
+    np.assign(nonFloorSliceInfo, rawBlocks.info)
+    np.assign(nonFloorSliceColor, rawBlocks.color)
+    var blocks = {info, color}
     this.setBlocks(blocks)
   }
 
   //serializes a slice, used as input to hash.  e.g. lo=[0, 1, 0] hi=[16, 16, 16]
   serializeBlockData(lo, hi) {
-    var slice = this.blocks.lo(lo).hi(hi)
+    var slice = this.blocks.info.lo(lo).hi(hi)
   }
 
   blockExists(pos) {
     if (!this.withinWorldBounds(pos)) {
       return false
     }
-    let exists = this.blocks.get(pos.x, pos.y, pos.z, 0) != 0
+    let exists = this.blocks.info.get(pos.x, pos.y, pos.z, 0) != 0
     return exists
   }
 
-  addBlock(pos, id) {
-    this.setBlocksData(pos.x, pos.y, pos.z, 0, id)
-    this.updateCubeRaymarchDistances(this.blocks)
+  addBlock(pos, color) {
+    this.setBlocksInfo(pos.x, pos.y, pos.z, 0, 1)
+    this.setBlocksColor(pos.x, pos.y, pos.z, color)
+    this.updateCubeRaymarchDistances()
   }
 
   removeBlock(pos, id) {
-    this.setBlocksData(pos.x, pos.y, pos.z, 0, 0)
-    this.updateCubeRaymarchDistances(this.blocks)
+    this.setBlocksInfo(pos.x, pos.y, pos.z, 0, 0)
+    this.updateCubeRaymarchDistances()
   }
 
   toggleBlockOutline(pos, status) {
-    this.setBlocksData(pos.x, pos.y, pos.z, 3, status ? 1 : 0)
+    this.setBlocksInfo(pos.x, pos.y, pos.z, 3, status ? 1 : 0)
   }
 
   withinWorldBounds(pos) {
@@ -3359,12 +3419,57 @@ class GameState {
   }
 }
 
+// returns and takes in rgba array
+// wrapped so it has it's own state and can drag color.
+var ColorPicker = props => {
+  var [color, setColor] = React.useState()
+
+  React.useEffect(() => {
+    setColor(rgbToHex(props.color.slice(0, 3)))
+  }, [props.color])
+
+  var onChangeComplete = color => {
+    var retColor = [...["r","g","b"].map(i => color.rgb[i]), 255]
+    setColor(color.hex)
+    props.onChangeComplete(retColor)
+  }
+  var onChange = color => {
+    setColor(color.hex)
+  }
+
+  var html = <>
+    <ChromePicker color={color} onChange={onChange} onChangeComplete={onChangeComplete} disableAlpha/>
+  </>
+
+  return html
+}
+
+
 class GameControlPanel extends React.Component {
   constructor(props) {
     super(props)
+
+    var palette = defaultBlockColors.map(item => item.rgba)
+    try {
+      var savedPalette = JSON.parse(window.localStorage.getItem("savedEditorPalette"))
+      if (!savedPalette) {throw "No saved palette"}
+      for(var i=0; i<16; i++) {
+        for(var j=0; j<4; j++) {
+          var val = savedPalette[i][j]
+          if (!Number.isInteger(val) || val < 0 || val > 255) {throw "Invalid palette"}
+        }
+      }
+      palette = savedPalette
+    } catch(e) {
+      console.log("Error loading saved palette: ", e)
+      console.log(window.localStorage.getItem("savedEditorPalette"))
+    }
+
     this.gameState = props.gameState
     this.state = {
-      selectedBlockColor: this.gameState.selectedBlockColor,
+      selectedColorIndex: 0,
+      popoverIdx: -1,
+      colorPalette: palette,
       buildPlate: true,
     }
     this.listeners = []
@@ -3372,8 +3477,8 @@ class GameControlPanel extends React.Component {
       var key = e.key
       var gridWidth = 4
       var gridHeight = 4
-      var row = Math.floor((this.state.selectedBlockColor - 1) / gridWidth)
-      var col = (this.state.selectedBlockColor - 1) % gridWidth
+      var row = Math.floor(this.state.selectedColorIndex / gridWidth)
+      var col = this.state.selectedColorIndex % gridWidth
       if (key == "ArrowLeft") {
         col -= 1
       } else if (key == "ArrowRight") {
@@ -3384,7 +3489,8 @@ class GameControlPanel extends React.Component {
         row += 1
       }
       if (row >= 0 && col >= 0 && row < gridHeight && col < gridWidth) {
-        this.setSelectedBlockColor((row * gridWidth + col) + 1)
+        var colorIndex = (row * gridWidth + col)
+        this.setSelectedColorIndex(colorIndex)
       }
     })
   }
@@ -3398,35 +3504,59 @@ class GameControlPanel extends React.Component {
     this.listeners.map(([obj, eventName, func]) => obj.removeEventListener(eventName, func))
   }
 
-  setSelectedBlockColor(selectedBlockColor) {
-    this.setState({selectedBlockColor: selectedBlockColor})
-    this.gameState.selectedBlockColor = selectedBlockColor
+  setSelectedColorIndex(selectedColorIndex) {
+    this.setState({selectedColorIndex})
+    this.gameState.selectedBlockColor = this.state.colorPalette[selectedColorIndex]
   }
 
   toggleBuildPlate() {
     var newToggleState = !this.state.buildPlate
-    var blockId = newToggleState == true ? 1 : 0
-    var gen = (new WorldGenerator({blocks: this.gameState.blocks})).bottomPlate(blockId)
-    this.gameState.setBlocks(gen.blocks)
+    var blockType = newToggleState == true ? 1 : 0
+    var blockColor = [255, 255, 255, 255]
+    this.gameState.setBlocksSlice([0, 0, 0], [16, 1, 16], blockColor, blockType)
     this.setState({buildPlate: newToggleState})
   }
 
   render() {
     var colorPicker = <div style={{display: "grid", gridTemplateColumns: "repeat(4, min-content)", rowGap: THEME.sizing.scale400, columnGap: THEME.sizing.scale400}}>
-      {this.gameState.blockColors.map(color => {
-        var isSelected = this.state.selectedBlockColor == color.id
+      {this.state.colorPalette.map((color, idx) => {
+        var isSelected = this.state.selectedColorIndex == idx
         var border = isSelected ? "2px solid #00C5CD" : "1px solid #000"
         var size = isSelected ? 28 : 30 //not sure why 30px vs 31px results in no visible size change.
         var onClick = e => {
-          this.setSelectedBlockColor(color.id)
+          if (this.state.popoverIdx == idx || this.state.popoverIdx != -1) {
+            this.setState({popoverIdx: -1})
+            this.setSelectedColorIndex(idx)
+          } else if (this.state.selectedColorIndex == idx) {
+            this.setState({popoverIdx: idx})
+          } else {
+            this.setSelectedColorIndex(idx)
+          }
         }
-        var div = <div
-          style={{backgroundColor: color.hex, height: `${size}px`, width: `${size}px`, borderRadius: "5px", cursor: "pointer", border}}
-          onClick={onClick}
-          key={color.hex}
-          >
-        </div>
-        return div
+        var onColorPick = color => {
+          var newPalette = [...this.state.colorPalette]
+          newPalette[idx] = color
+          this.setState({colorPalette: newPalette})
+          this.setSelectedColorIndex(idx)
+          window.localStorage.setItem("savedEditorPalette", JSON.stringify(this.state.colorPalette))
+        }
+        var colorHex = rgbToHex(color.slice(0, 3))
+        var displayBox = <>
+          <div style={{backgroundColor: colorHex, height: `${size}px`, width: `${size}px`, borderRadius: "5px", cursor: "pointer", border}} onClick={onClick} key={colorHex+idx}></div>
+        </>
+        var popover = <>
+          <div style={{position: "absolute", top: size+10+"px", right: -(225/2)+(size/2)+"px", zIndex: 1}}>
+            <ColorPicker color={color} onChangeComplete={onColorPick} />
+          </div>
+        </>
+        var showPopover = this.state.popoverIdx == idx
+        var html =
+          <div key={idx} style={{position: "relative"}}>
+            {displayBox}
+            {showPopover && popover}
+          </div>
+
+        return html
       })}
     </div>
 
@@ -3440,7 +3570,7 @@ class GameControlPanel extends React.Component {
     var magicaVoxelTemplatePath = require("./MagicaVoxelTemplate.vox")
     var importTooltipMessage = <>
       <div style={{width: "200px"}}>
-        The voxels size must be 16x16x16. Colors will be converted to the nearest color on the above palette. Download a template <StyledLink href={magicaVoxelTemplatePath} target="_blank" style={{color:"white", textDecoration: "underline", outline: "none"}}>here</StyledLink>. More flexibility will be added soon!
+        The voxels size must be 16x16x16. There's no limit on colors! Download a template <StyledLink href={magicaVoxelTemplatePath} target="_blank" style={{color:"white", textDecoration: "underline", outline: "none"}}>here</StyledLink>. More flexibility will be added soon!
       </div>
     </>
 
@@ -3450,7 +3580,7 @@ class GameControlPanel extends React.Component {
           Control
         </LabelMedium>
         <Caption1>
-          Change the block color you put down
+          Change the block color you put down. Double click to edit the color itself..
         </Caption1>
         {colorPicker}
         <Caption1>
@@ -3476,16 +3606,6 @@ class GameControlPanel extends React.Component {
 var VoxImporterButton = props => {
   var [fileSelector, setFileSelector] = React.useState()
 
-  var closestGameColorIndex = inRgb => {
-    var gameColors = props.gameState.blockColors.map(colorItem => {
-      var rgb = hexToRGB(colorItem.hex)
-      var distance = (rgb[0]-inRgb[0])**2 + (rgb[1]-inRgb[1])**2 + (rgb[2]-inRgb[2])**2
-      return ({id: colorItem.id, distance})
-    })
-    gameColors.sort((a, b) => (a.distance < b.distance ? -1 : 1))
-    return gameColors[0].id
-  }
-
   var setBlocksFromParsedFile = parsedFile => {
     var size = parsedFile.SIZE
     var palette = parsedFile.RGBA
@@ -3494,18 +3614,20 @@ var VoxImporterButton = props => {
       toaster.warning(`The .vox size must be 16^3! This requirement will be relaxed in the future.`)
       return
     }
-    var rawBlocks = ndarray(new Uint8Array(size.x*size.y*size.z), [size.x,size.y,size.z,1])
-
     var indexedBlocks = parsedFile.XYZI
     indexedBlocks.forEach(entry => {
       var {x, y, z, c} = entry
+      var blockType = c != 0 ? 1 : 0
+      var blockColor = [0,0,0,0]
       if (c != 0) {
-        var rgb = ["r", "g", "b"].map(i => palette[c-1][i])
-        var colorIndex = closestGameColorIndex(rgb)
-        rawBlocks.set(size.x-x-1, z, y, 0, colorIndex) //magicavoxel coords are diff
+        blockColor = ["r", "g", "b", "a"].map(i => palette[c-1][i])
       }
+      var xyz = [size.x-x-1, z, y]
+      xyz[1] += 1 // for build plate
+      props.gameState.setBlocksInfo(...xyz, 0, 1)
+      props.gameState.setBlocksColor(...xyz, blockColor)
     })
-    props.gameState.setAllBlocks(rawBlocks)
+    props.gameState.updateCubeRaymarchDistances()
   }
 
   var onSelectorChanged = (fileSelector) => {
@@ -3588,11 +3710,14 @@ var PublishItemPanel = props => {
         userAddress = await datastore.getData({kind: "web3Stuff", id: "userAddress"})
       }
 
-      var rawBlocks = Array.from(props.blocks.data)
-      var blocksHash = keccakUtf8(JSON.stringify(rawBlocks))
-      var metadata = {name, description, blocks: rawBlocks}
-      // note that second arg to JSON.stringify will guarantee order but will get rid of nested obj
-      var metadataHash = keccakUtf8(JSON.stringify(metadata, ["name", "description", "blocks"]))
+      const blocks = props.blocks
+      const base64BlocksInfo = typedArrayToBase64(blocks.info.data)
+      const base64BlocksColor = typedArrayToBase64(blocks.color.data)
+
+      var blocksHashObject = {info: base64BlocksInfo, color: base64BlocksColor}
+      var blocksHash = keccakUtf8(JSON.stringify(blocksHashObject, ["info", "color"]))
+      var metadata = {version: "2.0", name, description, blocksInfo: base64BlocksInfo, blocksColor: base64BlocksColor}
+      var metadataHash = keccakUtf8(JSON.stringify(metadata, ["version", "name", "description", "blocksInfo", "blocksColor"]))
 
       setWaiting("Uploading metadata to server")
       await runWithErrMsgAsync(datastore.setItemData({metadata, metadataHash, id: blocksHash}), "Error uploading metadata")
@@ -4149,7 +4274,7 @@ class FlyControls {
         for (var k=0; k < zLocations.length; k++) {
 
           var possibleBlock = new Vector3(xLocations[i], yLocations[j], zLocations[k])
-          var isWithinBounds = possibleBlock.clone().clamp(new Vector3(0,0,0), (new Vector3(...this.gameState.blocks.shape)).subScalar(1)).equals(possibleBlock)
+          var isWithinBounds = possibleBlock.clone().clamp(new Vector3(0,0,0), this.gameState.worldSize.clone().subScalar(1)).equals(possibleBlock)
           if (isWithinBounds) {
             // var isBlock = this.blocks.get(xLocations[i], yLocations[j], zLocations[k], 3) != 0
             var isBlock = this.gameState.blockExists(possibleBlock)
@@ -4188,7 +4313,7 @@ class FlyControls {
 
   interactionTick(cameraDirection) {
     var raymarchResult = this.gameState.raymarchToBlock(this.gameState.position, cameraDirection, 5)
-    if (raymarchResult) {
+    if (raymarchResult && this.interactionEnabled) {
       var [blockPos, hitPos] = raymarchResult
       this.gameState.toggleBlockOutline(blockPos, true)
       this.onNextTick = () => this.gameState.toggleBlockOutline(blockPos, false)
@@ -4452,6 +4577,29 @@ function keccakUtf8(string) {
 
 function hexToRGB(h) {
   return [+("0x"+h[1]+h[2]), +("0x"+h[3]+h[4]), +("0x"+h[5]+h[6])]
+}
+
+function rgbToHex(rgb) {
+  var componentToHex = c => {
+    var hex = c.toString(16);
+    return hex.length == 1 ? "0" + hex : hex;
+  }
+  return "#" + componentToHex(rgb[0]) + componentToHex(rgb[1]) + componentToHex(rgb[2]);
+}
+
+function typedArrayToBase64(array) {
+  var base64Raw = array.reduce((data, byte) => data + String.fromCharCode(byte), '')
+  var base64 = btoa(base64Raw)
+  return base64
+}
+
+function base64ToUint8Array(base64) {
+  var base64Raw = atob(base64)
+  var array = new Uint8Array(base64Raw.length)
+  for (var i=0; i<base64Raw.length; i++) {
+    array[i] = base64Raw.charCodeAt(i)
+  }
+  return array
 }
 
 function isTouchDevice() {
