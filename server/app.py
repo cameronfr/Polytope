@@ -34,6 +34,7 @@ datastoreClient = datastore.Client()
 from web3 import Web3
 w3 = Web3(Web3.HTTPProvider("https://mainnet.infura.io/v3/caf71132422240a38d0e98e364dc8779"))
 tokenContractAddress = "0xe8AA46D8d5565CB7F2F3D9686B0c77f3a6813504"
+# tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe" # for debug
 tokenContractABI = json.load(open("tokenABI.json"))
 tokenContract = w3.eth.contract(address=tokenContractAddress, abi=tokenContractABI)
 
@@ -156,18 +157,23 @@ def setItemData():
     metadataHash = data["metadataHash"]
 
     # validate the hashes so we can search by hashes in datastore later
-    metadataOrdered = OrderedDict((key, metadata[key]) for key in ["name", "description", "blocks"])
+    metadataKeys = ["version", "name", "description", "blocksInfo", "blocksColor"]
+    metadataOrdered = OrderedDict((key, metadata[key]) for key in metadataKeys)
     metadataOrdered = json.dumps(metadataOrdered, separators=(',', ':')) # have to match js json string
     calculatedMetadataHash = Web3.keccak(text=metadataOrdered).hex()
-    calculatedBlocksHash = Web3.keccak(text=json.dumps(metadata["blocks"], separators=(',', ':'))).hex()
+    blocksOrdered = OrderedDict([("info", metadata["blocksInfo"]), ("color", metadata["blocksColor"])])
+    calculatedBlocksHash = Web3.keccak(text=json.dumps(blocksOrdered, separators=(',', ':'))).hex()
 
-    assert id == calculatedBlocksHash
     assert metadataHash == calculatedMetadataHash
+    assert id == calculatedBlocksHash
 
     key = datastoreClient.key("Item")
+    print(metadata)
     item = datastore.Entity(key=key)
     item["id"] = id
-    item["metadata"] = metadata
+    item["metadata"] = datastore.Entity(exclude_from_indexes=("blocksInfo", "blocksColor"))
+    for key in metadataKeys:
+        item["metadata"][key] = metadata[key]
     item["metadataHash"] = metadataHash
     datastoreClient.put(item)
 
@@ -187,18 +193,32 @@ def getItemData():
 
     return make_response(items, 200)
 
-def renderBlocksObjectToSVGData(blocksObject):
-    colorList = ["#ffffff","#f7b69e","#cb4d68","#c92464","#f99252","#f7e476","#a1e55a","#5bb361","#6df7c1", "#11adc1","#1e8875","#6a3771","#393457","#606c81","#644536","#9b9c82",]
-
-    blocks = np.array(blocksObject).reshape([16, 16, 16]).transpose(0, 2, 1)[::-1, :, :] # match web
-    blockColors = np.zeros(blocks.shape + (3,))
-    for i in range(len(colorList)):
-        color = colorList[i][1:]
-        rgb = tuple(int(color[j:j+2], 16)/255 for j in (0, 2, 4))
+def renderBlocksObjectToSVGData(blocksInfo, blocksColor, version):
+    def colorAdjust(rgb):
         hsv = matplotlib.colors.rgb_to_hsv(rgb)
         hsv[2] = np.clip(hsv[2] * 1.3, 0, 1) # tweak cause kinda dark in matplotlib renderer
         rgb = matplotlib.colors.hsv_to_rgb(hsv)
-        blockColors[blocks == i+1] = rgb
+        return rgb
+
+    if version == "1.0":
+        colorList = ["#ffffff","#f7b69e","#cb4d68","#c92464","#f99252","#f7e476","#a1e55a","#5bb361","#6df7c1", "#11adc1","#1e8875","#6a3771","#393457","#606c81","#644536","#9b9c82",]
+        blocks = np.array(blocksInfo).reshape([16, 16, 16]).transpose(0, 2, 1)[::-1, :, :] # match web
+        blockColors = np.zeros(blocks.shape + (3,))
+        for i in range(len(colorList)):
+            color = colorList[i][1:]
+            rgb = tuple(int(color[j:j+2], 16)/255 for j in (0, 2, 4))
+            rgb = colorAdjust(rgb)
+            blockColors[blocks == i+1] = rgb
+    elif version == "2.0":
+        blocks = np.array(blocksInfo).reshape([16, 16, 16, 4])[:, :, :, 0].transpose(0, 2, 1)[::-1, :, :]
+        blockColors = np.array(blocksColor).reshape([16, 16, 16, 4]).transpose(0, 2, 1, 3)[::-1, :, :, :] / 255
+        for i in range(blockColors.shape[0]):
+            for j in range(blockColors.shape[1]):
+                for k in range(blockColors.shape[1]):
+                    rgb = blockColors[i, j, k][:3]
+                    rgb = colorAdjust(rgb).tolist() + [1]
+                    blockColors[i, j, k] = rgb
+
 
     plt.ioff()
     fig = plt.figure(figsize=(10,10))
@@ -265,7 +285,14 @@ def tokenImage(tokenIdString):
     item = getValidatedTokenData(tokenId)
 
     metadata = item["metadata"]
-    svgData = renderBlocksObjectToSVGData(metadata["blocks"])
+
+    if not ("version" in metadata):
+        svgData = renderBlocksObjectToSVGData(metadata["blocks"], None, "1.0")
+    elif metadata["version"] == "2.0":
+        blocksInfo = np.frombuffer(base64.b64decode(metadata["blocksInfo"]), dtype=np.uint8)
+        blocksColor = np.frombuffer(base64.b64decode(metadata["blocksColor"]), dtype=np.uint8)
+        svgData = renderBlocksObjectToSVGData(blocksInfo, blocksColor, "2.0")
+
     return Response(svgData, mimetype="image/svg+xml")
 
 @app.route("/getPopularItems", methods=["POST"])
