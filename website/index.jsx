@@ -107,7 +107,7 @@ var marketContractAddress = "0x301D5e7C1c5e97C2ac81ce979c6c6a9EC87217c8"
 const InfuraEndpoint = "wss://mainnet.infura.io/ws/v3/caf71132422240a38d0e98e364dc8779"
 var globalDebug = false
 if (process.env.NODE_ENV == "development") {
-  APIEndpoint = "http://localhost:5000"
+  // APIEndpoint = "http://localhost:5000"
   // APIEndpoint = "http://192.168.10.108:5000"
   // tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe"
   // marketContractAddress = "0xFFA62F9f2Bf85F3fF746194C163d681f4ce686B4"
@@ -1330,7 +1330,7 @@ var ListingCard = props => {
   const {price, isForSale, name, description, authorId, ownerId} = item
 
   var cardInterior = <>
-    <canvas ref={canvasRef} style={{height: props.imageSize+"px"}} width={props.imageSize} height={props.imageSize}></canvas>
+    <canvas ref={canvasRef} style={{height: props.imageSize+"px", width: props.imageSize+"px"}} width={props.imageSize} height={props.imageSize}></canvas>
     <div style={{width: props.imageSize+"px", height: "1px", backgroundColor: "#efefef"}}></div>
     <div style={{display: "flex", flexDirection: "column", justifyContent: "center", padding: "10px", width: props.imageSize+"px", boxSizing: "border-box", backgroundColor: THEME.colors.primaryB}}>
       <LabelLarge style={{textOverflow: "ellipsis", whiteSpace: "nowrap", overflow: "hidden"}}>
