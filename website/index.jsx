@@ -2500,11 +2500,11 @@ class VoxelRenderer {
         vec2 screenSpaceCoord = ((position / 2.0) + 0.5) * viewportSize.xy;
 
         vec3 cameraPos = (invView * vec4(0, 0, 0, 1)).xyz;
-        vec3 rayDir = getCameraDirection(screenSpaceCoord, cameraPos);
+        // vec3 rayDir = getCameraDirection(screenSpaceCoord, cameraPos);
 
-        vec3 hitPos;
-        vec3 blockIdx;
-        vec4 blockValue = raymarchToBlock(cameraPos, rayDir, blockIdx, hitPos);
+        // vec3 hitPos;
+        // vec3 blockIdx;
+        // vec4 blockValue = raymarchToBlock(cameraPos, rayDir, blockIdx, hitPos);
 
         // raymarchStartPos = hitPos - 1.0*rayDir;
         raymarchStartPos = cameraPos;
@@ -2641,11 +2641,10 @@ class VoxelRenderer {
 
   render(targetID) {
     const {gameState, element} = this.targets[targetID]
-    // const sizeOfTargetCanvas = {width: 780, height: 590}
-    // const sizeOfTargetCanvas = element
+    const maxResolution = {width: 700, height: 500} //TODO: move out of here. Note that canvas size also matters, e.g. chrome slow with upsizing a low res canvas.
     const sizeOfTargetCanvas = element.getBoundingClientRect();
-    const targetedWidth = sizeOfTargetCanvas.width * this.pixelRatio
-    const targetedHeight = sizeOfTargetCanvas.height * this.pixelRatio
+    const targetedWidth = Math.min(sizeOfTargetCanvas.width * this.pixelRatio, maxResolution.width)
+    const targetedHeight = Math.min(sizeOfTargetCanvas.height * this.pixelRatio, maxResolution.height)
     element.width = targetedWidth
     element.height = targetedHeight
     this.canvas.width = targetedWidth
@@ -2993,8 +2992,8 @@ var WorldMode = props =>  {
     <canvas style={{width: "100%", height: "100%"}} ref={canvasRef}/>
   </>
   var desktopHtml = <>
-    <div style={{display: "grid", gridTemplateColumns: "minmax(100px, 810px) 320px", padding: THEME.sizing.scale1400, columnGap: THEME.sizing.scale1400, height: "100%", boxSizing: "border-box", justifyContent: "center", maxHeight: "700px"}}>
-      <div ref={canvasContainerRef} style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "unset", minWidth: "200px", maxWidth: "810px", maxHeight: "610px", height: "100%"}}>
+    <div style={{display: "grid", gridTemplateColumns: "minmax(100px, 10810px) 320px", padding: THEME.sizing.scale1400, columnGap: THEME.sizing.scale1400, height: "100%", boxSizing: "border-box", justifyContent: "center", /*maxHeight: "700px"*/}}>
+      <div ref={canvasContainerRef} style={{boxShadow: "0px 1px 2px #ccc", borderRadius: "14px", overflow: "hidden", position: "relative", zIndex: "unset", minWidth: "200px", /*maxWidth: "810px", maxHeight: "610px",*/ height: "100%"}}>
         {canvasAndControls}
       </div>
       {currentViewedItem ? itemInfoArea : loadingInfoPanel}
