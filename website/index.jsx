@@ -107,7 +107,7 @@ var marketContractAddress = "0x301D5e7C1c5e97C2ac81ce979c6c6a9EC87217c8"
 const InfuraEndpoint = "wss://mainnet.infura.io/ws/v3/caf71132422240a38d0e98e364dc8779"
 var globalDebug = false
 if (process.env.NODE_ENV == "development") {
-  // APIEndpoint = "http://localhost:5000"
+  APIEndpoint = "http://localhost:5000"
   // APIEndpoint = "http://192.168.10.108:5000"
   // tokenContractAddress = "0xcEEF34aa024F024a872b4bA7216e9741Ac011efe"
   // marketContractAddress = "0xFFA62F9f2Bf85F3fF746194C163d681f4ce686B4"
@@ -213,10 +213,10 @@ class APIFetcher {
   async getItem({id}) {
     id = id.toLowerCase()
 
-    var call = this.callEndpoint("/getItemData", [id], "POST").then(res => res.json())
+    var call = this.callEndpoint(`/tokenInfo/${id}`, undefined, "GET").then(res => res.json())
     var res = await call
-    if (!res[id] || !res[id][0]) {throw "Item data not found on server"}
-    var rawData = res[id] // list of matching items
+    if (!res) {throw "Item data not found on server"}
+    var rawData = [res]
 
     return rawData
   }
@@ -247,12 +247,13 @@ class APIFetcher {
   }
 
   async callEndpoint(endpointFunction, dataDict, method) {
+    var body = dataDict == undefined ? undefined : JSON.stringify(dataDict)
     var res = await fetch(APIEndpoint+endpointFunction, {
       method,
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(dataDict)
+      body,
     })
     return res
   }

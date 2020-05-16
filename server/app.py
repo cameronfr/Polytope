@@ -181,18 +181,6 @@ def setItemData():
     logging.info(f"""Created item metadata with id {id} and name {metadata["name"]} and description {metadata["description"]} and metadataHash {metadataHash}. Request from ip {ipAddress}.""")
     return make_response("success", 200)
 
-# batch method
-@app.route("/getItemData", methods=["POST"])
-def getItemData():
-    data = request.json
-
-    items = {}
-    for id in data:
-        id = id.lower()
-        items[id] = [getValidatedTokenData(id)]
-
-    return make_response(items, 200)
-
 def renderBlocksObjectToSVGData(blocksInfo, blocksColor, version):
     def colorAdjust(rgb):
         hsv = matplotlib.colors.rgb_to_hsv(rgb)
@@ -266,7 +254,8 @@ def tokenInfo(tokenIdString):
 
     item = getValidatedTokenData(tokenId)
 
-    metadata = item["metadata"]
+    # metadata for external sites' listings. copy so that response.metadata is original.
+    metadata = {k: item["metadata"][k] for k in ["name", "description"]}
     externalURL = f"https://polytope.space/item/{tokenId}"
     metadata["external_url"] = externalURL
     metadata["description"] += f"\n\n\nInteract with a 3D version of this item at {externalURL}"
@@ -274,7 +263,9 @@ def tokenInfo(tokenIdString):
     metadata["image"] = f"{request.host_url}tokenImage/{tokenId}.svg"
     metadata["background_color"] = "ffffff" #"221e1f"
 
-    return make_response(metadata, 200)
+    response = {**item, **metadata} # be sure to make sure no overwriting happening
+
+    return make_response(response, 200)
 
 # called externally. Since e.g. rarible doesn't support image_data
 @app.route("/tokenImage/<tokenIdString>", methods=["GET"])
