@@ -8,7 +8,7 @@
     "ethereumjs-tx": "^2.1.2",
     "ethereumjs-util": "^6.2.0",
     "ethereumjs-vm": "^4.1.3",
-    "node-fetch": "^2.6.0",
+    "node-fetch": "^2.6.7",
     "solc": "0.5.16",
     "sync-request": "^6.1.0",
     "web3": "^1.2.6"
